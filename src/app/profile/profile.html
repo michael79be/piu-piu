@@ -1,5 +1,27 @@
-<div *ngIf="error(); else dataBlock">{{error()}}</div>
-<ng-template #dataBlock>
-  <pre *ngIf="profileData()">{{profileData() | json}}</pre>
-  <div *ngIf="!profileData()">No profile data</div>
-</ng-template>
+<div class="flex flex-col h-screen bg-white text-black">
+  <div class="flex-1 flex overflow-hidden">
+    <div class="menu w-[200px] border-r border-gray-200 bg-white flex flex-col overflow-y-auto p-2">
+      <nav class="flex-1">
+        <button tuiButton appearance="flat" size="m" class="w-full justify-start px-3 py-2 mb-2" (click)="onHome()">
+          <la-icon icon="home"></la-icon>
+          <span>Home</span>
+        </button>
+        <button tuiButton appearance="flat" size="m" class="w-full justify-start px-3 py-2 mb-2" (click)="onPost()">
+          <la-icon [icon]="['lar', 'edit']"></la-icon>
+          <span>Post</span>
+        </button>
+      </nav>
+
+      <div class="p-2">
+        <button tuiButton appearance="flat" size="m" class="w-full justify-start px-3 py-2" (click)="onAccount()">
+          <la-icon [icon]="['lar', 'user']"></la-icon>
+          <span>@{{ accountHandle() }}</span>
+        </button>
+      </div>
+    </div>
+
+    <main class="flex-1 overflow-y-auto bg-white">
+    </main>
+  </div>
+
+</div>

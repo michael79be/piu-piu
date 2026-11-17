@@ -5,7 +5,7 @@ Decentralized social network like Twitter. Full client-side, no backend, hosted 
 ## Stack
 
 - Node, Angular 22, Angular CLI (`npx ng`), SCSS, TypeScript
-- Tailwind CSS v4 via PostCSS, Taiga UI 5, vitest, jsdom
+- Tailwind CSS v4 via PostCSS, Taiga UI 5, angular-line-awesome, vitest, jsdom
 - office-addin-dev-certs for local SSL
 - Local URL shortener provider (`provider.mjs`, `:3000`) for development
 
@@ -53,10 +53,14 @@ Example profile URLs: `#@abc123` (is.gd), `#v@abc123` (v.gd), `#l@abc123` (local
 
 ### Profile screen (`src/app/profile/`)
 
-1. Reads `location.hash` and matches prefix `/^(#v@|#l@|#@)([^&]*)/`.
-2. Reverse-looks-up the provider base URL from `ProviderTagMap` using the matched tag; defaults to `https://is.gd`.
-3. Looks up the short URL via `ProviderService.lookupShortUrl`.
-4. Extracts the encoded profile from `longurl.split('#')[1]`, base64-decodes, parses JSON, and displays it.
+- Light mode, X.com-inspired layout using Taiga UI components (`TuiButton`) and `angular-line-awesome` (`la-icon` component with `las`/`lar` prefixes)
+- Bottom navigation: Home, Post, Account
+- Top bar: Home back button, Profile title, more options (ellipsis)
+- Main content area intentionally empty
+- Reads `location.hash` and matches prefix `/^(#v@|#l@|#@)([^&]*)/`.
+- Reverse-looks-up the provider base URL from `ProviderTagMap` using the matched tag; defaults to `https://is.gd`.
+- Looks up the short URL via `ProviderService.lookupShortUrl`.
+- Extracts the encoded profile from `longurl.split('#')[1]`, base64-decodes, parses JSON, and displays it.
 
 ## Register screen (legacy notes)
 
