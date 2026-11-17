@@ -1,0 +1,25 @@
+<div tuiCardLarge class="w-96 mx-auto mt-8 p-6">
+  <h1 tuiTitle class="mb-4 text-center">Register</h1>
+
+  <tui-textfield tuiChevron>
+    <input
+            placeholder="I am placeholder"
+            tuiSelect
+            [(ngModel)]="provider"
+        />
+    <tui-data-list-wrapper *tuiDropdown [items]="providers()"></tui-data-list-wrapper>
+  </tui-textfield>
+
+  <tui-textfield>
+    <input tuiInput [(ngModel)]="username" name="username" placeholder="Username" class="mt-4" />
+  </tui-textfield>
+
+  <button tuiButton type="button" class="w-full mt-6" (click)="register()">Create account</button>
+
+  @if (error()) {
+  <p class="text-red-600 mt-2">{{ error() }}</p>
+}
+  @if (profileUrl()) {
+  <p class="text-green-600 break-all mt-2">Your profile URL (keep it): <a href="{{ profileUrl() }}">{{ profileUrl() }}</a></p>
+}
+</div>
