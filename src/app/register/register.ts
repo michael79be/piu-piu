@@ -5,7 +5,7 @@ import { TuiButton, TuiDropdown, TuiInput, TuiTextfield } from '@taiga-ui/core';
 import { TuiCardLarge } from '@taiga-ui/layout';
 import { TuiChevron, TuiDataListWrapper, TuiSelect } from '@taiga-ui/kit';
 import { ProviderService } from '../provider/provider.service';
-import { ProviderTagMap } from '../provider/provider.enum';
+import { ProviderTagMap, LocalhostProviderUrl } from '../provider/provider.enum';
 import { lastValueFrom } from 'rxjs';
 
 @Component({
@@ -18,13 +18,13 @@ export class Register {
 
   username = signal('');
   provider = signal(Object.keys(ProviderTagMap)[0]);
-  providers = signal<string[]>(Object.keys(ProviderTagMap));
+  providers = signal<string[]>(Object.keys(ProviderTagMap).filter(url => url !== LocalhostProviderUrl));
   profileUrl = signal<string | null>(null);
   error = signal<string | null>(null);
 
   constructor() {
     if (location.hostname === 'localhost') {
-      this.providers.update(list => [...list, 'http://localhost:3000']);
+      this.providers.update(list => [...list, LocalhostProviderUrl]);
     }
   }
 

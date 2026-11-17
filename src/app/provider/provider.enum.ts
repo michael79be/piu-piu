@@ -9,3 +9,5 @@ export const ProviderTagMap: Record<string, ProviderTag> = {
   'https://v.gd': ProviderTag.Vgd,
   'http://localhost:3000': ProviderTag.Localhost,
 };
+
+export const LocalhostProviderUrl = 'http://localhost:3000';
