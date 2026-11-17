@@ -1,0 +1,5 @@
+<div *ngIf="error(); else dataBlock">{{error()}}</div>
+<ng-template #dataBlock>
+  <pre *ngIf="profileData()">{{profileData() | json}}</pre>
+  <div *ngIf="!profileData()">No profile data</div>
+</ng-template>

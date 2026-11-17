@@ -5,6 +5,7 @@ import { TuiButton, TuiDropdown, TuiInput, TuiTextfield } from '@taiga-ui/core';
 import { TuiCardLarge } from '@taiga-ui/layout';
 import { TuiChevron, TuiDataListWrapper, TuiSelect } from '@taiga-ui/kit';
 import { ProviderService } from '../provider/provider.service';
+import { ProviderTagMap } from '../provider/provider.enum';
 import { lastValueFrom } from 'rxjs';
 
 @Component({
@@ -16,8 +17,8 @@ export class Register {
   private providerService = inject(ProviderService);
 
   username = signal('');
-  provider = signal('https://is.gd');
-  providers = signal<string[]>(['https://is.gd', 'https://v.gd']);
+  provider = signal(Object.keys(ProviderTagMap)[0]);
+  providers = signal<string[]>(Object.keys(ProviderTagMap));
   profileUrl = signal<string | null>(null);
   error = signal<string | null>(null);
 
@@ -73,7 +74,8 @@ export class Register {
       const name = (res?.shorturl ?? '').split('/').pop() ?? '';
       const baseHref = document.querySelector('base')?.getAttribute('href') ?? '/';
       const rootUrl = `${location.origin}${baseHref.startsWith('/') ? baseHref.slice(0, -1) : baseHref}`;
-      this.profileUrl.set(`${rootUrl}/#@${name}`);
+      const tag = ProviderTagMap[this.provider()] ?? '';
+      this.profileUrl.set(`${rootUrl}/${tag}${name}`);
     } catch (e: any) {
       this.error.set(e?.message ?? 'Registration failed');
     }
