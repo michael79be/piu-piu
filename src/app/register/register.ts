@@ -36,12 +36,13 @@ export class Register {
       return;
     }
     try {
+      const encoder = new TextEncoder();
       const cred = await navigator.credentials.create({
         publicKey: {
           challenge: crypto.getRandomValues(new Uint8Array(32)),
           rp: { name: 'Piu-Piu', id: location.hostname },
           user: {
-            id: crypto.getRandomValues(new Uint8Array(16)),
+            id: encoder.encode(this.username()),
             name: this.username(),
             displayName: this.username(),
           },
