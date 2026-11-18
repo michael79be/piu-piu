@@ -65,15 +65,26 @@ export class Register {
       const base = `${rootUrl()}profile/${encoded}`;
 
       const random = Math.random().toString(36).substring(2, 8);
-      const customShort = `${this.username()}_${random}`;
       let res: any;
+
+      // Try username only first
       try {
-        res = await lastValueFrom(this.providerService.createShortUrl(providerUrl, base, customShort));
+        res = await lastValueFrom(this.providerService.createShortUrl(providerUrl, base, this.username()));
         if (res?.errorcode) {
-          throw new Error('custom rejected');
+          throw new Error('username taken');
         }
       } catch (_) {
-        res = await lastValueFrom(this.providerService.createShortUrl(providerUrl, base));
+        // Try username_random
+        const customShort = `${this.username()}_${random}`;
+        try {
+          res = await lastValueFrom(this.providerService.createShortUrl(providerUrl, base, customShort));
+          if (res?.errorcode) {
+            throw new Error('custom rejected');
+          }
+        } catch (_) {
+          // Let provider choose
+          res = await lastValueFrom(this.providerService.createShortUrl(providerUrl, base));
+        }
       }
 
       this.errorService.showSuccess('Account created successfully');

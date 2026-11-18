@@ -81,11 +81,12 @@ const server = http.createServer(async (req, res) => {
 
   // Lookup endpoint (mimics is.gd API)
   if (parsed.pathname === '/forward.php') {
-    const corsHeaders = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' };
     const short = parsed.query.shorturl;
-    console.log('[provider] Lookup request for shorturl:', short);
+    const format = parsed.query.format;
+    const callback = parsed.query.callback;
+    console.log('[provider] Lookup request for shorturl:', short, 'format:', format, 'callback:', callback);
     if (!short) {
-      res.writeHead(400, corsHeaders);
+      res.writeHead(400, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
       res.end(JSON.stringify({ errorcode: 2, errormessage: 'shorturl query param missing' }));
       return;
     }
@@ -95,12 +96,25 @@ const server = http.createServer(async (req, res) => {
     console.log('[provider] Extracted code:', code, 'from shorturl:', short);
     if (store.has(code)) {
       const longurl = store.get(code);
-      res.writeHead(200, corsHeaders);
-      res.end(JSON.stringify({ shorturl: short, longurl }));
+      const response = { url: longurl };
+      
+      // JSONP callback support for CORS fallback
+      if (callback) {
+        res.writeHead(200, { 'Content-Type': 'application/javascript', 'Access-Control-Allow-Origin': '*' });
+        res.end(`${callback}(${JSON.stringify(response)})`);
+      } else {
+        res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+        res.end(JSON.stringify(response));
+      }
     } else {
       console.warn('[provider] Code not found:', code);
-      res.writeHead(404, corsHeaders);
-      res.end(JSON.stringify({ errorcode: 3, errormessage: 'Short URL not found' }));
+      if (callback) {
+        res.writeHead(404, { 'Content-Type': 'application/javascript', 'Access-Control-Allow-Origin': '*' });
+        res.end(`${callback}(${JSON.stringify({ errorcode: 3, errormessage: 'Short URL not found' })})`);
+      } else {
+        res.writeHead(404, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+        res.end(JSON.stringify({ errorcode: 3, errormessage: 'Short URL not found' }));
+      }
     }
     return;
   }

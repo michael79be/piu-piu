@@ -50,8 +50,9 @@ export class ProfileResolver implements Resolve<ProfileData | null> {
         this.errorService.showError('Lookup failed');
         return null;
       }
-      const longUrl = res?.longurl || '';
-      const encoded = longUrl.split('/profile/')[1];
+      const longUrl = res?.url || '';
+      // Extract the encoded profile from the last segment of the URL path
+      const encoded = new URL(longUrl).pathname.split('/').filter(Boolean).pop();
       if (!encoded) {
         this.errorService.showError('No profile data');
         return null;
