@@ -16,7 +16,7 @@
       <div class="p-2" [tuiDropdown]="content">
         <button tuiButton appearance="flat" tuiDropdownAuto tuiDropdownRole="menu" type="button" [tuiDropdown]="content">
           <la-icon [icon]="['lar', 'user']"></la-icon>
-          <span>@{{ accountHandle() }}</span>
+          <span>@{{ isSignedIn() ? accountName() : 'guest' }}</span>
         </button>
       </div>
 

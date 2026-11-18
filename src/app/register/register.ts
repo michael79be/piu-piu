@@ -72,11 +72,7 @@ export class Register {
         res = await lastValueFrom(this.providerService.createShortUrl(this.provider(), base));
       }
 
-      const name = (res?.shorturl ?? '').split('/').pop() ?? '';
-      const baseHref = document.querySelector('base')?.getAttribute('href') ?? '/';
-      const rootUrl = `${location.origin}${baseHref.startsWith('/') ? baseHref.slice(0, -1) : baseHref}`;
-      const tag = ProviderTagMap[this.provider()] ?? '';
-      this.profileUrl.set(`${rootUrl}/${tag}${name}`);
+      this.profileUrl.set(res?.shorturl);
     } catch (e: any) {
       this.error.set(e?.message ?? 'Registration failed');
     }

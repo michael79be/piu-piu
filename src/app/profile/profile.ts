@@ -1,9 +1,9 @@
-import { Component, computed, inject, signal } from '@angular/core';
+import { Component, computed, inject, OnInit, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { TuiButton, TuiDropdown, TuiDataList } from '@taiga-ui/core';
 import { LaIconComponent, LaIconLibrary } from 'angular-line-awesome';
 import { lasArrowLeft, lasEllipsisH, lasHome, larEdit, larUser } from 'angular-line-awesome/icons';
-import { ProviderTagMap } from '../provider/provider.enum';
+import { ProviderLookupResult, ProviderTagMap } from '../provider/provider.enum';
 import { ProviderService } from '../provider/provider.service';
 import { lastValueFrom } from 'rxjs';
 import { SESSION_KEY } from '../auth/auth.enum';
@@ -13,6 +13,20 @@ type MenuItem = {
   command: () => void;
 }
 
+
+type ProfileData = {
+  username: string;
+  publicKey: number[];
+}
+
+type SignerInfo = ProfileData & {
+  account: string;
+  authenticatorData: number[];
+  clientData: number[];
+  signature: number[];
+  profileUrl: string;
+}
+
 @Component({
   selector: 'app-profile',
   standalone: true,
@@ -20,12 +34,12 @@ type MenuItem = {
   templateUrl: './profile.html',
   styleUrl: './profile.scss'
 })
-export class Profile {
+export class Profile implements OnInit {
   private providerService = inject(ProviderService);
   private library = inject(LaIconLibrary);
 
   provider = signal<string | undefined>(undefined);
-  profileData = signal<any>(null);
+  profileData = signal<ProfileData | null>(null);
   error = signal<string | null>(null);
   accountMenu = computed<MenuItem[]>(() => {
     if (this.isSignedIn()) {
@@ -40,13 +54,15 @@ export class Profile {
 
   constructor() {
     this.library.addIcons([lasArrowLeft, lasEllipsisH, lasHome, larEdit, larUser]);
+  }
 
-    this.loadProfileFromHash();
+  async ngOnInit(): Promise<void> {
+    await this.loadProfileFromHash();
 
     const storedSigner = sessionStorage.getItem(SESSION_KEY);
     if (storedSigner) {
-      const signer = JSON.parse(storedSigner);
-      this.checkSigner(signer, '');
+      const signer = JSON.parse(storedSigner) as SignerInfo;
+      await this.checkSigner(signer, signer.account);
     }
   }
 
@@ -68,7 +84,7 @@ export class Profile {
         return;
       }
 
-      const res: any = await lastValueFrom(this.providerService.lookupShortUrl(providerUrl, accountName));
+      const res: ProviderLookupResult = await lastValueFrom(this.providerService.lookupShortUrl(providerUrl, accountName));
       if (res?.errorcode) {
         this.error.set('Lookup failed');
         return;
@@ -79,7 +95,6 @@ export class Profile {
         return;
       }
       const decoded = JSON.parse(atob(encoded));
-      console.debug(decoded);
       this.profileData.set(decoded);
       this.accountName.set(accountName);
     } catch (e: any) {
@@ -87,30 +102,30 @@ export class Profile {
     }
   }
 
-  private async checkSigner(signer: any, accountName: string): Promise<boolean> {
+  private async checkSigner(signer: SignerInfo, accountName: string): Promise<boolean> {
     try {
       const data = this.profileData();
       if (!data || !data.publicKey) {
         this.isSignedIn.set(false);
+
         return false;
       }
 
-      console.debug(data);
-      console.debug(signer);
 
       const accountMatch = signer.account === accountName;
-
       const hasSignatureAndClientData = signer.clientData.length > 0 && signer.signature.length > 0;
+      const signatureValid = await this.verifyWebAuthnSignature(signer);
 
-      console.debug({accountMatch, hasSignatureAndClientData});
+      console.debug({accountMatch, hasSignatureAndClientData, signatureValid});
 
-      const isValid = accountMatch && hasSignatureAndClientData;
+      const isValid = accountMatch && hasSignatureAndClientData && signatureValid;
 
       this.isSignedIn.set(isValid);
 
       return isValid;
     } catch (e: any) {
       this.error.set(e?.message ?? 'Error checking signer');
+
       return false;
     }
   }
@@ -124,12 +139,8 @@ export class Profile {
   onAccount() {
   }
 
-  /**
-   * Sign out - clear the sessionStorage signer and reload profile
-   */
   signOut() {
     sessionStorage.removeItem(SESSION_KEY);
-    this.profileData.set(null);
     this.isSignedIn.set(false);
     this.signedUsername.set('guest');
   }
@@ -152,36 +163,32 @@ export class Profile {
         }
       }) as PublicKeyCredential;
 
-      const response = cred.response as any;
+      const response = cred.response as AuthenticatorAssertionResponse;
+      const authData = response.authenticatorData ? new Uint8Array(response.authenticatorData) : new Uint8Array(0);
       const clientData = response.clientDataJSON ? new Uint8Array(response.clientDataJSON) : new Uint8Array(0);
       const signature = response.signature ? new Uint8Array(response.signature) : new Uint8Array(0);
 
-      const handle = (cred.response as AuthenticatorAssertionResponse).userHandle;
       let username = accountName;
-      if (handle) {
+      if (response.userHandle) {
         const decoder = new TextDecoder('utf-8');
-        username = decoder.decode(handle) ?? accountName;
+        username = decoder.decode(response.userHandle) ?? accountName;
       }
-
-      console.debug(username);
 
       const signerInfo = {
         username,
         account: accountName,
-        publicKey: [],
+        publicKey: Array.from([]),
+        authenticatorData: Array.from(authData),
         clientData: Array.from(clientData),
         signature: Array.from(signature),
         profileUrl: ''
-      };
+      } as SignerInfo;
 
-      console.debug(signerInfo);
-
-      if(await this.checkSigner(signerInfo, accountName)) {
-        signerInfo.publicKey = this.profileData()?.publicKey;
+      if (await this.checkSigner(signerInfo, accountName)) {
+        signerInfo.publicKey = this.profileData()?.publicKey ?? [];
         const encoded = btoa(JSON.stringify(signerInfo));
         const base = `${location.origin}${location.pathname}#${encoded}`;
         signerInfo.profileUrl = `${base}`;
-        console.debug(signerInfo);
         sessionStorage.setItem(SESSION_KEY, JSON.stringify(signerInfo));
       } else {
         this.error.set('Checking signature failed');
@@ -193,26 +200,73 @@ export class Profile {
     }
   }
 
-  verifySigner(): boolean {
-    const storedSigner = sessionStorage.getItem(SESSION_KEY);
-    if (!storedSigner) {
+  private async verifyWebAuthnSignature(signer: SignerInfo): Promise<boolean> {
+    try {
+      const data = this.profileData();
+      if (!data || !data.publicKey) {
+        this.isSignedIn.set(false);
+
+        return false;
+      }
+
+      const publicKeyBytes = new Uint8Array(data.publicKey);
+      const keyFormat = publicKeyBytes.length === 65 ? 'raw' : 'spki';
+
+      const cryptoKey = await window.crypto.subtle.importKey(
+        keyFormat,
+        publicKeyBytes,
+        { name: 'ECDSA', namedCurve: 'P-256' },
+        false,
+        ['verify']
+      );
+
+      const clientDataBytes = new Uint8Array(signer.clientData);
+      const clientDataHash = new Uint8Array(
+        await window.crypto.subtle.digest('SHA-256', clientDataBytes)
+      );
+
+      const authDataBytes = new Uint8Array(signer.authenticatorData);
+      const signedData = new Uint8Array(authDataBytes.length + clientDataHash.length);
+      signedData.set(authDataBytes, 0);
+      signedData.set(clientDataHash, authDataBytes.length);
+
+      const rawSignature = this.derToRawSignature(new Uint8Array(signer.signature));
+
+      return await window.crypto.subtle.verify(
+        { name: 'ECDSA', hash: { name: 'SHA-256' } },
+        cryptoKey,
+        rawSignature as BufferSource,
+        signedData
+      );
+    } catch (e) {
+      console.error('WebAuthn signature verification failed:', e);
+
       return false;
     }
-    const signer = JSON.parse(storedSigner);
-    const data = this.profileData();
-    if (!data || !data.publicKey) {
-      return false;
-    }
-    return data.publicKey === signer.publicKey;
+  }
+
+  private derToRawSignature(der: Uint8Array): Uint8Array {
+    let offset = 2;
+    if (der[1] & 0x80) offset += der[1] & 0x7f;
+
+    const rLen = der[offset + 1];
+    const rBytes = der.slice(offset + 2, offset + 2 + rLen);
+    offset += 2 + rLen;
+
+    const sLen = der[offset + 1];
+    const sBytes = der.slice(offset + 2, offset + 2 + sLen);
+
+    const raw = new Uint8Array(64);
+    raw.set(rBytes.slice(-32), 32 - Math.min(32, rBytes.length));
+    raw.set(sBytes.slice(-32), 64 - Math.min(32, sBytes.length));
+
+    return raw;
   }
 
   private padChallenge(data: Uint8Array, length: number): Uint8Array {
     const result = new Uint8Array(length);
     result.set(data.slice(0, length));
-    return result;
-  }
 
-  accountHandle() {
-    return this.isSignedIn() ? this.signedUsername() : 'guest';
+    return result;
   }
 }

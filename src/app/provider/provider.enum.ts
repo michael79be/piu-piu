@@ -11,3 +11,13 @@ export const ProviderTagMap: Record<string, ProviderTag> = {
 };
 
 export const LocalhostProviderUrl = 'http://localhost:3000';
+
+export type ProviderResult = {
+  short_url: string;
+  errorcode?: string;
+};
+
+export type ProviderLookupResult = {
+  longurl: string;
+  errorcode?: string;
+};
