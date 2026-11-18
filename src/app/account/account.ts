@@ -1,22 +1,16 @@
 import { Component, computed, inject, OnInit, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { ActivatedRoute, Router } from '@angular/router';
 import { TuiButton, TuiDropdown, TuiDataList } from '@taiga-ui/core';
 import { LaIconComponent, LaIconLibrary } from 'angular-line-awesome';
 import { lasArrowLeft, lasEllipsisH, lasHome, larEdit, larUser } from 'angular-line-awesome/icons';
-import { ProviderLookupResult, ProviderTagMap } from '../provider/provider.enum';
-import { ProviderService } from '../provider/provider.service';
-import { lastValueFrom } from 'rxjs';
+import { ProfileService, ProfileData } from '../profile/profile.service';
+import { ErrorService } from '../error/error.service';
 import { SESSION_KEY } from '../auth/auth.enum';
 
 type MenuItem = {
   label: string;
   command: () => void;
-}
-
-
-type ProfileData = {
-  username: string;
-  publicKey: number[];
 }
 
 type SignerInfo = ProfileData & {
@@ -28,127 +22,89 @@ type SignerInfo = ProfileData & {
 }
 
 @Component({
-  selector: 'app-profile',
+  selector: 'app-account',
   standalone: true,
   imports: [CommonModule, TuiButton, TuiDropdown, TuiDataList, LaIconComponent],
-  templateUrl: './profile.html',
-  styleUrl: './profile.scss'
+  templateUrl: './account.html',
+  styleUrl: './account.scss'
 })
-export class Profile implements OnInit {
-  private providerService = inject(ProviderService);
+export class Account implements OnInit {
+  private route = inject(ActivatedRoute);
+  private router = inject(Router);
+  private profileService = inject(ProfileService);
+  private errorService = inject(ErrorService);
   private library = inject(LaIconLibrary);
 
-  provider = signal<string | undefined>(undefined);
   profileData = signal<ProfileData | null>(null);
-  error = signal<string | null>(null);
+  accountName = signal<string | null>(null);
+  isSignedIn = signal<boolean>(false);
+  signedUsername = signal<string>('guest');
+  storedSigner = signal<SignerInfo | null>(null);
+  showAccountMenu = signal(false);
+
   accountMenu = computed<MenuItem[]>(() => {
     if (this.isSignedIn()) {
-      return [{ label: 'Profile', command: () => { } }, { label: 'Sign out', command: () => this.signOut() }];
+      return [
+        { label: 'Profile', command: () => { } },
+        { label: 'Sign out', command: () => this.signOut() }
+      ];
     } else {
       return [{ label: 'Sign in', command: () => this.signIn() }];
     }
   });
-  accountName = signal<string | null>(null);
-  isSignedIn = signal<boolean>(false);
-  signedUsername = signal<string>('guest');
+
+  canPost = computed(() => {
+    if (!this.isSignedIn()) return false;
+    const signer = this.storedSigner();
+    const accountName = this.accountName();
+    return signer?.account === accountName;
+  });
 
   constructor() {
     this.library.addIcons([lasArrowLeft, lasEllipsisH, lasHome, larEdit, larUser]);
   }
 
-  async ngOnInit(): Promise<void> {
-    await this.loadProfileFromHash();
+  ngOnInit(): void {
+    this.profileData.set(this.route.snapshot.data['profileData']);
+    const routeAccountName = this.route.snapshot.paramMap.get('accountName');
+    const profile = this.profileData();
+    this.accountName.set(routeAccountName ?? profile?.accountName ?? profile?.username ?? null);
+
+    // Trigger signIn AND open account menu if coming from Sign in button
+    const signInParam = this.route.snapshot.queryParamMap.get('signIn');
+    if (signInParam === 'true') {
+      this.showAccountMenu.set(true);
+      this.signIn();
+    }
 
     const storedSigner = sessionStorage.getItem(SESSION_KEY);
     if (storedSigner) {
       const signer = JSON.parse(storedSigner) as SignerInfo;
-      await this.checkSigner(signer, signer.account);
+      this.storedSigner.set(signer);
+      this.checkSigner(signer, signer.account);
     }
   }
 
-  private async loadProfileFromHash() {
-    try {
-      const hash = location.hash;
-      if (!hash || !hash.startsWith('#')) {
-        this.error.set('No profile hash found');
-        return;
-      }
-
-      const accountName = hash.substring(1).split('@')[1] || '';
-
-      const providerEntry = Object.entries(ProviderTagMap).find(([_, tag]) => hash.startsWith(tag));
-      const providerUrl = providerEntry ? providerEntry[0] : null;
-
-      if (!providerUrl) {
-        this.error.set('Unknown provider prefix in hash');
-        return;
-      }
-
-      const res: ProviderLookupResult = await lastValueFrom(this.providerService.lookupShortUrl(providerUrl, accountName));
-      if (res?.errorcode) {
-        this.error.set('Lookup failed');
-        return;
-      }
-      const encoded = res?.longurl?.split('#')[1];
-      if (!encoded) {
-        this.error.set('No profile data');
-        return;
-      }
-      const decoded = JSON.parse(atob(encoded));
-      this.profileData.set(decoded);
-      this.accountName.set(accountName);
-    } catch (e: any) {
-      this.error.set(e?.message ?? 'Error loading profile');
-    }
+  onHome(): void {
   }
 
-  private async checkSigner(signer: SignerInfo, accountName: string): Promise<boolean> {
-    try {
-      const data = this.profileData();
-      if (!data || !data.publicKey) {
-        this.isSignedIn.set(false);
-
-        return false;
-      }
-
-
-      const accountMatch = signer.account === accountName;
-      const hasSignatureAndClientData = signer.clientData.length > 0 && signer.signature.length > 0;
-      const signatureValid = await this.verifyWebAuthnSignature(signer);
-
-      console.debug({accountMatch, hasSignatureAndClientData, signatureValid});
-
-      const isValid = accountMatch && hasSignatureAndClientData && signatureValid;
-
-      this.isSignedIn.set(isValid);
-
-      return isValid;
-    } catch (e: any) {
-      this.error.set(e?.message ?? 'Error checking signer');
-
-      return false;
-    }
+  onPost(): void {
   }
 
-  onHome() {
+  onAccount(): void {
   }
 
-  onPost() {
-  }
-
-  onAccount() {
-  }
-
-  signOut() {
+  signOut(): void {
     sessionStorage.removeItem(SESSION_KEY);
     this.isSignedIn.set(false);
     this.signedUsername.set('guest');
+    this.storedSigner.set(null);
   }
 
-  async signIn() {
-    const accountName = this.accountName();;
+  async signIn(): Promise<void> {
+    const accountName = this.accountName();
     if (null === accountName) {
-      this.error.set('No account name set');
+      this.errorService.showError('No account name set');
       return;
     }
     const accountNameBytes = new TextEncoder().encode(accountName);
@@ -188,15 +144,46 @@ export class Profile implements OnInit {
         signerInfo.publicKey = this.profileData()?.publicKey ?? [];
         const encoded = btoa(JSON.stringify(signerInfo));
         const base = `${location.origin}${location.pathname}#${encoded}`;
-        signerInfo.profileUrl = `${base}`;
+        signerInfo.profileUrl = base;
         sessionStorage.setItem(SESSION_KEY, JSON.stringify(signerInfo));
+        this.storedSigner.set(signerInfo);
+        this.errorService.showSuccess('Signed in successfully');
       } else {
-        this.error.set('Checking signature failed');
+        this.errorService.showError('Checking signature failed');
       }
+      // Remove signIn queryParam on both success and failure
+      this.router.navigate([], { queryParams: { signIn: null }, queryParamsHandling: 'merge', replaceUrl: true });
 
     } catch (e: any) {
-      this.error.set(e?.message ?? 'Sign in failed');
+      this.errorService.showError(e?.message ?? 'Sign in failed');
       console.error('WebAuthn sign in error:', e);
+      // Remove signIn queryParam on error
+      this.router.navigate([], { queryParams: { signIn: null }, queryParamsHandling: 'merge', replaceUrl: true });
+    }
+  }
+
+  private async checkSigner(signer: SignerInfo, accountName: string): Promise<boolean> {
+    try {
+      const data = this.profileData();
+      if (!data || !data.publicKey) {
+        this.isSignedIn.set(false);
+        return false;
+      }
+
+      const accountMatch = signer.account === accountName;
+      const hasSignatureAndClientData = signer.clientData.length > 0 && signer.signature.length > 0;
+      const signatureValid = await this.verifyWebAuthnSignature(signer);
+
+      console.debug({ accountMatch, hasSignatureAndClientData, signatureValid });
+
+      const isValid = accountMatch && hasSignatureAndClientData && signatureValid;
+
+      this.isSignedIn.set(isValid);
+
+      return isValid;
+    } catch (e: any) {
+      this.errorService.showError(e?.message ?? 'Error checking signer');
+      return false;
     }
   }
 
@@ -205,7 +192,6 @@ export class Profile implements OnInit {
       const data = this.profileData();
       if (!data || !data.publicKey) {
         this.isSignedIn.set(false);
-
         return false;
       }
 
@@ -240,7 +226,6 @@ export class Profile implements OnInit {
       );
     } catch (e) {
       console.error('WebAuthn signature verification failed:', e);
-
       return false;
     }
   }
@@ -266,7 +251,6 @@ export class Profile implements OnInit {
   private padChallenge(data: Uint8Array, length: number): Uint8Array {
     const result = new Uint8Array(length);
     result.set(data.slice(0, length));
-
     return result;
   }
 }

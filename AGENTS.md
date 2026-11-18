@@ -25,15 +25,11 @@ Decentralized social network like Twitter. Full client-side, no backend, hosted 
 
 ### Provider system (`src/app/provider/`)
 
-`provider.enum.ts` defines the shortener providers and their URL-prefix tags:
+`provider.enum.ts` defines the shortener providers with helper functions:
 
-- `#@` → `https://is.gd` (`ProviderTag.IsGd`)
-- `#v@` → `https://v.gd` (`ProviderTag.Vgd`)
-- `#l@` → `http://localhost:3000` (`ProviderTag.Localhost`)
-
-`ProviderTagMap` maps provider base URLs → `ProviderTag` enum values. Use it to:
-- Build profile URLs from a provider (`register.ts`)
-- Detect the provider from a profile URL hash prefix (`profile.ts`)
+- `Provider` type: `{ url: string, prefix: string, label: string }`
+- `Providers` array: is.gd (prefix: ''), v.gd (prefix: 'v'), localhost (prefix: 'l')
+- Helper functions: `getAvailableProviders()`, `getProviderByUrl()`, `getProviderByPrefix()`, `getDefaultProvider()`
 
 `provider.service.ts` wraps the shortener HTTP API:
 - `createShortUrl(providerUrl, base, short?)` → `POST /create.php`
@@ -41,43 +37,57 @@ Decentralized social network like Twitter. Full client-side, no backend, hosted 
 
 Local provider (`provider.mjs` / `provider/`) runs on `:3000` and persists to `provider/store.json`.
 
+### Profile service (`src/app/profile/profile.service.ts`)
+
+- `ProfileService` - manages profile data state using signals
+- `ProfileResolver` - resolves profile data from route parameters
+
+### Error service (`src/app/error/error.service.ts`)
+
+- `ErrorService` - shows toast notifications using Taiga UI toasts (`TuiToastService`)
+
+### Routes (custom UrlMatcher for @ prefix)
+
+- `/` - Home page
+- `/register` - Register page
+- `/@:accountName` - Account page with account name (defaults to is.gd)
+- `/@:accountName/:provider` - Account page with account name and provider suffix (v=v.gd, l=localhost)
+
+All routes use lazy-loaded components (`loadComponent`).
+
+### Home page (`src/app/home/`)
+
+- Project description with cloud background and apple-touch-icon.png
+- Sign in button - shows input for account name or URL + provider dropdown (hidden for URL input)
+- Register button - navigates to register page
+
 ### Register screen (`src/app/register/`)
 
-1. User picks a provider and enters a username (5–30 alphanumeric/underscore).
+1. User picks a provider (URL string) and enters a username (5–30 alphanumeric/underscore).
 2. WebAuthn credential is created (`navigator.credentials.create`).
-3. Profile `{ username, publicKey }` is base64-encoded and appended to the page URL as a hash fragment.
+3. Profile `{ username, publicKey, provider }` is base64-encoded into URL path `/profile/:encoded`.
 4. The long URL is shortened via the chosen provider; a custom short code (`username_random`) is attempted first.
-5. The profile URL is displayed as `${rootUrl}/${tag}${name}` where `tag` comes from `ProviderTagMap`.
+5. On success, redirects to `/@accountName` or `/@accountName/provider` after 2 seconds.
 
-Example profile URLs: `#@abc123` (is.gd), `#v@abc123` (v.gd), `#l@abc123` (localhost).
+### Account screen (`src/app/account/`)
 
-### Profile screen (`src/app/profile/`)
-
-- Light mode, X.com-inspired layout using Taiga UI components (`TuiButton`) and `angular-line-awesome` (`la-icon` component with `las`/`lar` prefixes)
-- Bottom navigation: Home, Post, Account
-- Top bar: Home back button, Profile title, more options (ellipsis)
-- Main content area intentionally empty
-- Reads `location.hash` and matches prefix `/^(#v@|#l@|#@)([^&]*)/`.
-- Reverse-looks-up the provider base URL from `ProviderTagMap` using the matched tag; defaults to `https://is.gd`.
-- Looks up the short URL via `ProviderService.lookupShortUrl`.
-- Extracts the encoded profile from `longurl.split('#')[1]`, base64-decodes, parses JSON, and displays it.
+- Light mode, X.com-inspired layout using Taiga UI components (`TuiButton`, `TuiDropdown`, `TuiDataList`) and `angular-line-awesome` (`la-icon` component with `las`/`lar` prefixes)
+- Left navigation: Home, Post
+- Top bar: User menu with sign in/out
+- Main content area displays profile information
+- Uses `ProfileResolver` to load profile data from route params
+- WebAuthn sign in with cryptographic verification via `checkSigner`
 
 **Profile loading flow:**
-- `loadProfileFromHash()` is always called in the constructor - this loads the profile on guest access by reading the hash prefix from the URL and using `ProviderTagMap` to determine the provider
-- `checkSigner(signer)` is a separate authentication process that only runs when there's a stored signer in `sessionStorage`
-
-## Register screen (legacy notes)
-
-- Creates WebAuthn credentials
-- User chooses username; account name from shortener
-- Encode profile URL, shorten it; account name becomes short url
-- Display `#@account-name` URL
+- `ProfileResolver` loads profile data from route params (`accountName` + optional `provider`)
+- Always uses provider service to lookup short URL and decode profile from `/profile/:encoded` path
+- Profile data is stored in `ProfileService` for component access
+- `checkSigner(signer)` runs when there's a stored signer in `sessionStorage`
 
 **signIn flow:**
 - Uses `navigator.credentials.get` to authenticate (not create a new credential)
 - The challenge is the accountName (accountName is converted to Uint8Array and used as the WebAuthn challenge)
 - Stores signer info in sessionStorage
-- Does NOT create a new short URL
 - Calls `checkSigner` for cryptographic authentication verification
 
 **checkSigner flow:**
@@ -90,4 +100,3 @@ Example profile URLs: `#@abc123` (is.gd), `#v@abc123` (v.gd), `#l@abc123` (local
 ## Release
 
 GitHub Pages via `pull_request.yml` workflow.
-

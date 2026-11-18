@@ -1,0 +1,64 @@
+<div class="flex flex-col h-screen bg-white text-black">
+  <div class="flex-1 flex overflow-hidden">
+    <div class="menu w-[200px] border-r border-gray-200 bg-white flex flex-col overflow-y-auto p-2">
+      <nav class="flex-1">
+        <button tuiButton appearance="flat" size="m" class="w-full justify-start px-3 py-2 mb-2" (click)="onHome()">
+          <la-icon icon="home"></la-icon>
+          <span>Home</span>
+        </button>
+        @if (canPost()) {
+          <button tuiButton appearance="flat" size="m" class="w-full justify-start px-3 py-2 mb-2" (click)="onPost()">
+            <la-icon [icon]="['lar', 'edit']"></la-icon>
+            <span>Post</span>
+          </button>
+        }
+      </nav>
+
+      <div class="p-2" tuiDropdown #dropdown="tuiDropdown" [tuiDropdownOpen]="showAccountMenu()">
+      <div class="p-2" [tuiDropdown]="content">
+        <button tuiButton appearance="flat" tuiDropdownAuto tuiDropdownRole="menu" type="button" [tuiDropdown]="content">
+          <la-icon [icon]="['lar', 'user']"></la-icon>
+          <span>@{{ isSignedIn() ? accountName() : 'guest' }}</span>
+        </button>
+      </div>
+
+      <ng-template #content>
+        <tui-data-list>
+          @for (item of accountMenu(); track item) {
+            <a
+              tuiOption
+              (click)="item.command()"
+            >
+              {{ item.label }}
+            </a>
+          }
+        </tui-data-list>
+      </ng-template>
+    </div>
+    </div>
+
+    <main class="flex-1 overflow-y-auto bg-white p-6">
+      <div class="max-w-2xl mx-auto">
+        @if (profileData(); as profile) {
+          <div class="bg-gray-50 rounded-lg p-6">
+            <h2 class="text-xl font-semibold text-gray-900 mb-4">Profile Information</h2>
+            <dl class="space-y-3">
+              <div>
+                <dt class="text-sm font-medium text-gray-500">Username</dt>
+                <dd class="mt-1 text-lg text-gray-900">{{ profile.username }}</dd>
+              </div>
+              <div>
+                <dt class="text-sm font-medium text-gray-500">Public Key</dt>
+                <dd class="mt-1 text-sm text-gray-600 font-mono break-all">{{ profile.publicKey.length }} bytes</dd>
+              </div>
+            </dl>
+          </div>
+        } @else {
+          <div class="text-center text-gray-500 py-8">
+            <p>No profile data loaded</p>
+          </div>
+        }
+      </div>
+    </main>
+  </div>
+</div>
