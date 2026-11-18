@@ -11,6 +11,10 @@ Decentralized social network like Twitter. Full client-side, no backend, hosted 
 
 2. **View a profile** — Opening a profile URL reads the hash prefix (`#@`, `#v@`, `#l@`), detects the provider, looks up the short URL, decodes the embedded profile, and displays it.
 
+**Profile loading flow:**
+- `loadProfileFromHash()` is always called in the constructor - this loads the profile on guest access by reading the hash prefix from the URL and using `ProviderTagMap` to determine the provider
+- `checkSigner(signer)` is a separate authentication process that only runs when there's a stored signer in `sessionStorage`
+
 Everything is client-side; there is no server except the optional local shortener provider used during development.
 
 ## Development

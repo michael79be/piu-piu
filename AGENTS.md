@@ -62,12 +62,30 @@ Example profile URLs: `#@abc123` (is.gd), `#v@abc123` (v.gd), `#l@abc123` (local
 - Looks up the short URL via `ProviderService.lookupShortUrl`.
 - Extracts the encoded profile from `longurl.split('#')[1]`, base64-decodes, parses JSON, and displays it.
 
+**Profile loading flow:**
+- `loadProfileFromHash()` is always called in the constructor - this loads the profile on guest access by reading the hash prefix from the URL and using `ProviderTagMap` to determine the provider
+- `checkSigner(signer)` is a separate authentication process that only runs when there's a stored signer in `sessionStorage`
+
 ## Register screen (legacy notes)
 
 - Creates WebAuthn credentials
 - User chooses username; account name from shortener
 - Encode profile URL, shorten it; account name becomes short url
 - Display `#@account-name` URL
+
+**signIn flow:**
+- Uses `navigator.credentials.get` to authenticate (not create a new credential)
+- The challenge is the accountName (accountName is converted to Uint8Array and used as the WebAuthn challenge)
+- Stores signer info in sessionStorage
+- Does NOT create a new short URL
+- Calls `checkSigner` for cryptographic authentication verification
+
+**checkSigner flow:**
+- Separate authentication process that verifies:
+  - Public key matches between profileData and signer
+  - Challenge (accountName) matches
+  - Cryptographic signature verification via Web Crypto API (`verifyWebAuthnSignature`)
+- Sets `isSignedIn` based on all checks passing
 
 ## Release
 
