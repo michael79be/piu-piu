@@ -43,52 +43,71 @@ async function saveStore() {
 await loadStore();
 
 const server = http.createServer(async (req, res) => {
+  // Handle CORS preflight
+  if (req.method === 'OPTIONS') {
+    res.writeHead(200, {
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+      'Access-Control-Allow-Headers': 'Content-Type',
+      'Access-Control-Max-Age': '86400'
+    });
+    res.end();
+    return;
+  }
+
   console.log('[provider] Incoming request:', req.method, req.url);
   const parsed = url.parse(req.url, true);
   console.log('[provider] Parsed URL:', parsed.pathname, parsed.query);
 
   // Create short URL
   if (parsed.pathname === '/create.php') {
+    const corsHeaders = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' };
     const longUrl = parsed.query.url;
     let short = parsed.query.shorturl;
     console.log('[provider] Create request - longUrl:', longUrl, 'short:', short);
     if (!short) short = Math.random().toString(36).slice(2, 10);
     if (store.has(short)) {
       console.warn('[provider] Short URL already taken:', short);
-      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.writeHead(400, corsHeaders);
       res.end(JSON.stringify({ errorcode: 1, errormessage: 'Short URL taken' }));
       return;
     }
     store.set(short, longUrl);
     await saveStore();
-    res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+    res.writeHead(200, corsHeaders);
     res.end(JSON.stringify({ shorturl: `http://localhost:3000/${short}`, longurl: longUrl }));
     return;
   }
 
   // Lookup endpoint (mimics is.gd API)
-  if (parsed.pathname === '/lookup') {
+  if (parsed.pathname === '/forward.php') {
+    const corsHeaders = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' };
     const short = parsed.query.shorturl;
     console.log('[provider] Lookup request for shorturl:', short);
     if (!short) {
-      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.writeHead(400, corsHeaders);
       res.end(JSON.stringify({ errorcode: 2, errormessage: 'shorturl query param missing' }));
       return;
     }
-    const code = short.replace(/^https?:\/\/[^/]+\//, ''); // strip possible domain
+    // Strip domain from full URL if present, and trailing slashes
+    let code = short.replace(/^https?:\/\/[^/]+\//, '');
+    code = code.replace(/\/+$/, ''); // strip trailing slashes
+    console.log('[provider] Extracted code:', code, 'from shorturl:', short);
     if (store.has(code)) {
       const longurl = store.get(code);
-      res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      res.writeHead(200, corsHeaders);
       res.end(JSON.stringify({ shorturl: short, longurl }));
     } else {
-      res.writeHead(404, { 'Content-Type': 'application/json' });
+      console.warn('[provider] Code not found:', code);
+      res.writeHead(404, corsHeaders);
       res.end(JSON.stringify({ errorcode: 3, errormessage: 'Short URL not found' }));
     }
     return;
   }
 
   // Redirect based on short code in path
-  const code = parsed.pathname.slice(1);
+  let code = parsed.pathname.slice(1);
+  code = code.replace(/\/+$/, ''); // strip trailing slashes
   console.log('[provider] Redirect lookup for code:', code);
   if (store.has(code)) {
     const target = store.get(code);

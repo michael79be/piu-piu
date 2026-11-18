@@ -6,9 +6,9 @@ import { SESSION_KEY } from '../auth/auth.enum';
 
 export interface SignerInfo extends ProfileData {
   account: string;
-  authenticatorData: number[];
-  clientData: number[];
-  signature: number[];
+  authenticatorData: string; // base64
+  clientData: string; // base64
+  signature: string; // base64
   profileUrl: string;
 }
 
@@ -64,16 +64,16 @@ export class AuthService {
     const signerInfo: SignerInfo = {
       username,
       account: accountName,
-      publicKey: Array.from([]),
-      authenticatorData: Array.from(result.authenticatorData),
-      clientData: Array.from(result.clientData),
-      signature: Array.from(result.signature),
+      publicKey: '',
+      authenticatorData: result.authenticatorData,
+      clientData: result.clientData,
+      signature: result.signature,
       profileUrl: ''
     };
 
     if (await this.checkSigner(signerInfo)) {
       const profile = this.profileService.getProfileData();
-      signerInfo.publicKey = profile?.publicKey ?? [];
+      signerInfo.publicKey = profile?.publicKey ?? '';
       const encoded = btoa(JSON.stringify(signerInfo));
       const base = `${location.origin}${location.pathname}#${encoded}`;
       signerInfo.profileUrl = base;
@@ -107,9 +107,9 @@ export class AuthService {
 
       const hasSignatureAndClientData = signer.clientData.length > 0 && signer.signature.length > 0;
       const signatureValid = await this.cryptoService.verifyWebAuthnSignature(
-        new Uint8Array(signer.authenticatorData),
-        new Uint8Array(signer.clientData),
-        new Uint8Array(signer.signature),
+        signer.authenticatorData,
+        signer.clientData,
+        signer.signature,
         data.publicKey
       );
 

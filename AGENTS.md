@@ -35,7 +35,7 @@ Decentralized social network like Twitter. Full client-side, no backend, hosted 
 
 `provider.service.ts` wraps the shortener HTTP API:
 - `createShortUrl(providerUrl, base, short?)` → `POST /create.php`
-- `lookupShortUrl(providerUrl, shortUrl)` → `GET /lookup`
+- `lookupShortUrl(providerUrl, shortUrl)` → `GET /forward.php`
 
 Local provider (`provider.mjs` / `provider/`) runs on `:3000` and persists to `provider/store.json`.
 
@@ -63,9 +63,12 @@ Local provider (`provider.mjs` / `provider/`) runs on `:3000` and persists to `p
 
 - `RoomService` - manages trystero P2P room for data sync
 - `joinRoom(accountName)` - joins room named after account
-- Uses `MessageAction` for `whoami` broadcasts
+- Uses `MessageAction` for `whoami` and `post` broadcasts
 - Signed-in users announce themselves with signerInfo; guests participate but don't announce
-- Logs join/leave/whoami events to console
+- `handleIncomingPost()` - verifies post signature using sender's publicKey, stores valid posts in IndexedDB
+- `broadcastPost(post)` - sends post to all peers in room
+- Dispatches `piu-piu:load-posts` custom event after storing incoming posts
+- Logs join/leave/whoami/post events to console
 
 ### Post service (`src/app/post/post.service.ts`)
 
@@ -73,9 +76,9 @@ Local provider (`provider.mjs` / `provider/`) runs on `:3000` and persists to `p
 - `createPost(accountName, content)` - creates post with uuid, sender, timestamp, content, and WebAuthn signature
 - `getPost(uuid)` - retrieves single post by uuid
 - `getAllPosts(accountName)` - retrieves all posts sorted by timestamp descending
-- `getVerifiedPosts(accountName, publicKey)` - retrieves and verifies posts using profile public key, filters invalid
+- `getVerifiedPosts(accountName)` - retrieves and verifies posts using post's publicKey, filters invalid
 - `deletePost(uuid)` - deletes post by uuid
-- `verifyPost(post, publicKey)` - verifies post signature using Web Crypto API with provided public key
+- `verifyPost(post)` - verifies post signature using Web Crypto API with post's publicKey
 
 **Post data structure:**
 - `uuid` - crypto.randomUUID()
@@ -83,30 +86,34 @@ Local provider (`provider.mjs` / `provider/`) runs on `:3000` and persists to `p
 - `senderAccount` - account name from signer
 - `timestamp` - Date.now()
 - `content` - user input
-- `signature` - WebAuthn ECDSA P-256 signature over `${uuid}:${senderAccount}:${timestamp}:${content}`
+- `publicKey` - base64 encoded SPKI public key
+- `signature` - base64 encoded WebAuthn ECDSA P-256 signature
+- `authenticatorData` - base64 encoded authenticator data
+- `clientData` - base64 encoded client data JSON
 
 **Signature flow:**
-- Signing: `signData()` uses Web Crypto API `sign()` with signer's private key
-- Verification: `verifyPost()` reconstructs signing string, removes signature, verifies with public key
-- DER to raw signature conversion for Web Crypto API compatibility
+- Signing: `createPost()` computes challenge as SHA-256 of `${uuid}:${senderAccount}:${timestamp}:${content}`, calls `navigator.credentials.get()` with challenge
+- Verification: `verifyPost()` reconstructs signing string, hashes clientData, verifies signature with publicKey
+- All binary fields stored as base64 strings for reliable JSON transport
 
 ### Post dialog (`src/app/post/post-dialog/`)
 
 - `PostDialogComponent` - Taiga UI routable dialog via `TuiDialogService`
 - Opens from Account page Post button (only when `signerMatchesAccount` is true)
 - Textarea for content input
-- On submit: calls `PostService.createPost()`, reloads posts list
+- On submit: calls `PostService.createPost()`, broadcasts via `RoomService`, reloads posts list
 - Uses `POLYMORPHEUS_CONTEXT` for dialog context (close/completeWith)
 - Returns `PostData` observable via `context.completeWith()`
 
 ### Crypto service (`src/app/crypto/crypto.service.ts`)
 
 - `CryptoService` - centralized cryptographic operations
-- `webAuthnSign(challenge, publicKey)` - signs challenge using `navigator.credentials.get`
-- `verifyWebAuthnSignature(publicKey, challenge, credential)` - verifies WebAuthn assertion
-- `importPublicKey(rawKey)` - imports SPKI public key for Web Crypto API
+- `webAuthnSign(accountName)` - signs challenge using `navigator.credentials.get`
+- `verifyWebAuthnSignature(authData, clientData, signature, publicKey)` - verifies WebAuthn assertion
+- `importPublicKey(publicKey)` - imports SPKI public key for Web Crypto API
 - `derToRawSignature(derSig)` - converts DER to raw r|s for ECDSA P-256
 - `padChallenge(challenge)` - ensures challenge is 32 bytes for Web Crypto
+- `bytesToBase64()`, `base64ToBytes()` - helpers for base64 encoding/decoding
 
 ### Routes (custom UrlMatcher for @ prefix)
 
@@ -120,6 +127,7 @@ All routes use lazy-loaded components (`loadComponent`).
 ### Home page (`src/app/home/`)
 
 - Project description with cloud background and apple-touch-icon.png
+- App icon displayed prominently at top
 - Sign in button - shows input for account name or URL + provider dropdown (hidden for URL input)
 - Register button - navigates to register page
 
@@ -129,17 +137,20 @@ All routes use lazy-loaded components (`loadComponent`).
 2. WebAuthn credential is created (`navigator.credentials.create`).
 3. Profile `{ username, publicKey, provider }` is base64-encoded into URL path `/profile/:encoded`.
 4. The long URL is shortened via the chosen provider; a custom short code (`username_random`) is attempted first.
-5. On success, redirects to `/@accountName` or `/@accountName/provider` after 2 seconds.
+5. On success, redirects to `/@accountName?signIn=true` or `/@accountName/provider?signIn=true` after 2 seconds.
+- App icon displayed at top of card
 
 ### Account screen (`src/app/account/`)
 
 - Light mode, X.com-inspired layout using Taiga UI components (`TuiButton`, `TuiDropdown`, `TuiDataList`) and `angular-line-awesome` (`la-icon` component with `las`/`lar` prefixes)
 - Left navigation: Home, Post (when signed in)
 - Top bar: User menu with sign in/out/register
-- Main content area displays profile information and posts feed
+- App icon + "Piu-Piu" title in sidebar header
+- Main content area displays profile with "Piu-Piu" title and posts feed
 - Uses `ProfileResolver` to load profile data from route params
 - On init: joins trystero room via `RoomService.joinRoom(accountName)`
-- Loads posts from IndexedDB via `PostService.getAllPosts()`
+- Loads posts from IndexedDB via `PostService.getVerifiedPosts()`
+- Listens for `piu-piu:load-posts` custom event to auto-refresh posts
 - Uses `AuthService` for authentication state
 
 **Profile loading flow:**
@@ -151,6 +162,7 @@ All routes use lazy-loaded components (`loadComponent`).
 - Post button opens `PostDialogComponent` via `TuiDialogService`
 - User enters content, submits
 - `PostService.createPost(content)` signs with WebAuthn, stores in IndexedDB
+- `RoomService.broadcastPost(post)` sends to P2P room
 - Posts list refreshes, displays newest first
 - Each post shows sender, timestamp, content, and signature status
 

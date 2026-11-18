@@ -1,14 +1,14 @@
 import { Injectable } from '@angular/core';
 import { Resolve, ActivatedRouteSnapshot } from '@angular/router';
 import { ProviderService } from '../provider/provider.service';
-import { getProviderByPrefix, getDefaultProvider, type Provider } from '../provider/provider.enum';
+import { getProviderByPrefix, getDefaultProvider, LocalhostProviderUrl, type Provider } from '../provider/provider.enum';
 import { ProfileService } from './profile.service';
 import { ErrorService } from '../error/error.service';
 import { lastValueFrom } from 'rxjs';
 
 export type ProfileData = {
   username: string;
-  publicKey: number[];
+  publicKey: string;
   provider?: string;
   accountName?: string;
 }
@@ -39,7 +39,10 @@ export class ProfileResolver implements Resolve<ProfileData | null> {
   }
 
   private async loadFromAccountName(accountName: string, providerParam: string | null): Promise<ProfileData | null> {
-    const provider: Provider = providerParam ? getProviderByPrefix(providerParam)! : getDefaultProvider();
+    // Use localhost provider when on localhost to avoid CORS issues
+    const isLocalhost = location.hostname === 'localhost';
+    const defaultProvider = isLocalhost ? { url: LocalhostProviderUrl, prefix: 'l', label: 'localhost' } : getDefaultProvider();
+    const provider: Provider = providerParam ? getProviderByPrefix(providerParam)! : defaultProvider;
 
     try {
       const res: any = await lastValueFrom(this.providerService.lookupShortUrl(provider.url, accountName));
@@ -58,7 +61,13 @@ export class ProfileResolver implements Resolve<ProfileData | null> {
       this.profileService.setProfileData(data);
       return data;
     } catch (e: any) {
-      this.errorService.showError(e?.message ?? 'Error loading profile');
+      if (e?.message === 'Profile not found') {
+        this.errorService.showError(`Profile "@${accountName}" not found`);
+      } else if (e?.message?.includes('CORS blocked')) {
+        this.errorService.showError(e.message);
+      } else {
+        this.errorService.showError(e?.message ?? 'Error loading profile');
+      }
       return null;
     }
   }

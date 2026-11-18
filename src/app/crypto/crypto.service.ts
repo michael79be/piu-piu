@@ -1,41 +1,54 @@
 import { Injectable } from '@angular/core';
 
 export interface WebAuthnSignResult {
-  signature: Uint8Array;
-  authenticatorData: Uint8Array;
-  clientData: Uint8Array;
+  signature: string; // base64
+  authenticatorData: string; // base64
+  clientData: string; // base64
   username?: string;
 }
 
 @Injectable({ providedIn: 'root' })
 export class CryptoService {
-  async importPublicKey(publicKey: number[]): Promise<CryptoKey> {
-    const publicKeyBytes = new Uint8Array(publicKey);
+  private bytesToBase64(bytes: Uint8Array): string {
+    return btoa(String.fromCharCode(...bytes));
+  }
+
+  private base64ToBytes(base64: string): Uint8Array {
+    const binary = atob(base64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) {
+      bytes[i] = binary.charCodeAt(i);
+    }
+    return bytes;
+  }
+
+  async importPublicKey(publicKey: string): Promise<CryptoKey> {
+    const publicKeyBytes = this.base64ToBytes(publicKey);
     const keyFormat = publicKeyBytes.length === 65 ? 'raw' : 'spki';
 
     return window.crypto.subtle.importKey(
       keyFormat,
-      publicKeyBytes,
+      publicKeyBytes as BufferSource,
       { name: 'ECDSA', namedCurve: 'P-256' },
       false,
       ['verify']
     );
   }
 
-  async importPublicKeyForSign(publicKey: number[]): Promise<CryptoKey> {
-    const publicKeyBytes = new Uint8Array(publicKey);
+  async importPublicKeyForSign(publicKey: string): Promise<CryptoKey> {
+    const publicKeyBytes = this.base64ToBytes(publicKey);
     const keyFormat = publicKeyBytes.length === 65 ? 'raw' : 'spki';
 
     return window.crypto.subtle.importKey(
       keyFormat,
-      publicKeyBytes,
+      publicKeyBytes as BufferSource,
       { name: 'ECDSA', namedCurve: 'P-256' },
       false,
       ['sign']
     );
   }
 
-  async signData(data: string, publicKey: number[]): Promise<Uint8Array | null> {
+  async signData(data: string, publicKey: string): Promise<string | null> {
     try {
       const encoder = new TextEncoder();
       const dataBytes = encoder.encode(data);
@@ -48,20 +61,20 @@ export class CryptoService {
         dataBytes
       );
 
-      return new Uint8Array(signature);
+      return this.bytesToBase64(new Uint8Array(signature));
     } catch (e) {
       console.error('Signing failed:', e);
       return null;
     }
   }
 
-  async verifySignature(data: string, signature: Uint8Array, publicKey: number[]): Promise<boolean> {
+  async verifySignature(data: string, signature: string, publicKey: string): Promise<boolean> {
     try {
       const encoder = new TextEncoder();
       const dataBytes = encoder.encode(data);
 
       const cryptoKey = await this.importPublicKey(publicKey);
-      const rawSignature = this.derToRawSignature(signature);
+      const rawSignature = this.derToRawSignature(this.base64ToBytes(signature));
 
       return await window.crypto.subtle.verify(
         { name: 'ECDSA', hash: { name: 'SHA-256' } },
@@ -98,7 +111,12 @@ export class CryptoService {
         username = decoder.decode(response.userHandle);
       }
 
-      return { signature, authenticatorData: authData, clientData, username };
+      return {
+        signature: this.bytesToBase64(signature),
+        authenticatorData: this.bytesToBase64(authData),
+        clientData: this.bytesToBase64(clientData),
+        username
+      };
     } catch (e) {
       console.error('WebAuthn sign failed:', e);
       return null;
@@ -106,28 +124,32 @@ export class CryptoService {
   }
 
   async verifyWebAuthnSignature(
-    authData: Uint8Array,
-    clientData: Uint8Array,
-    signature: Uint8Array,
-    publicKey: number[]
+    authData: string,
+    clientData: string,
+    signature: string,
+    publicKey: string
   ): Promise<boolean> {
     try {
+      const authDataBytes = this.base64ToBytes(authData);
+      const clientDataBytes = this.base64ToBytes(clientData);
+      const signatureBytes = this.base64ToBytes(signature);
+
       const clientDataHash = new Uint8Array(
-        await window.crypto.subtle.digest('SHA-256', clientData.buffer as ArrayBuffer)
+        await window.crypto.subtle.digest('SHA-256', clientDataBytes as BufferSource)
       );
 
-      const signedData = new Uint8Array(authData.length + clientDataHash.length);
-      signedData.set(authData, 0);
-      signedData.set(clientDataHash, authData.length);
+      const signedData = new Uint8Array(authDataBytes.length + clientDataHash.length);
+      signedData.set(authDataBytes, 0);
+      signedData.set(clientDataHash, authDataBytes.length);
 
       const cryptoKey = await this.importPublicKey(publicKey);
-      const rawSignature = this.derToRawSignature(signature);
+      const rawSignature = this.derToRawSignature(signatureBytes);
 
       return await window.crypto.subtle.verify(
         { name: 'ECDSA', hash: { name: 'SHA-256' } },
         cryptoKey,
-        rawSignature.buffer as ArrayBuffer,
-        signedData
+        rawSignature as BufferSource,
+        signedData as BufferSource
       );
     } catch (e) {
       console.error('WebAuthn verification failed:', e);

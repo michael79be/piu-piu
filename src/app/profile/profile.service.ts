@@ -2,7 +2,7 @@ import { Injectable, signal } from '@angular/core';
 
 export type ProfileData = {
   username: string;
-  publicKey: number[];
+  publicKey: string; // base64
   provider?: string;
   accountName?: string;
 }

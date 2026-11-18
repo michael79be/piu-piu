@@ -55,9 +55,10 @@ export class Register {
       const providerUrl = this.selectedProviderUrl();
       const provider = getProviderByUrl(providerUrl);
       const providerPrefix = provider?.prefix || '';
+      const publicKeyBase64 = pubKey ? btoa(String.fromCharCode(...new Uint8Array(pubKey))) : '';
       const profile = {
         username: this.username(),
-        publicKey: pubKey ? Array.from(new Uint8Array(pubKey)) : null,
+        publicKey: publicKeyBase64,
         provider: providerPrefix,
       };
       const encoded = btoa(JSON.stringify(profile));
@@ -88,7 +89,7 @@ export class Register {
           }
           if (accountName) {
             const url = providerPrefix ? `/@${accountName}/${providerPrefix}` : `/@${accountName}`;
-            this.router.navigateByUrl(url);
+            this.router.navigateByUrl(`${url}?signIn=true`);
           }
         }, 2000);
       }

@@ -2,6 +2,8 @@
 
 Decentralized social network like Twitter. Full client-side, no backend, hosted on GitHub Pages. Account creation via URL shortener service (is.gd / v.gd / localhost provider). Auth via WebAuthn only. P2P data sync via trystero.
 
+⚠️ **IMPORTANT:** Anything published on the network is public. Everything is signed but not encrypted. There are no private messages. Data is synchronized unencrypted over multiple devices on the whole network.
+
 ## How it works
 
 1. **Register** — Choose a username and a URL shortener provider (is.gd, v.gd, or localhost). A WebAuthn credential is created and your profile (`{ username, publicKey, provider }`) is base64-encoded into a URL route `/profile/:encoded`. That long URL is shortened through the provider, and you get a profile URL like:
@@ -9,13 +11,13 @@ Decentralized social network like Twitter. Full client-side, no backend, hosted 
    - `https://v.gd/abc123` → opens as `/@abc123/v`
    - `http://localhost:3000/abc123` → opens as `/@abc123/l`
 
-2. **Home page** — Displays project description with Sign in and Register buttons.
+2. **Home page** — Displays project description with Sign in and Register buttons. App icon displayed prominently.
 
 3. **View a profile** — Opening an account URL (`/@accountName` or `/@accountName/v`) resolves the provider, looks up the short URL, decodes the embedded profile, and displays it on the Account page.
 
 4. **P2P Sync** — When visiting an account page, the client joins a trystero WebRTC room named after the account. Signed-in users announce themselves via a `whoami` MessageAction; guests help relay data but don't announce.
 
-5. **Posts** — Signed-in users can create posts via the Post dialog. Each post is signed with WebAuthn (ECDSA P-256), stored in per-account IndexedDB, and displayed in the feed with signature verification status.
+5. **Posts** — Signed-in users can create posts via the Post dialog. Each post is signed with WebAuthn (ECDSA P-256), stored in per-account IndexedDB, and displayed in the feed with signature verification status. Posts are broadcast to all peers in the room via the `post` MessageAction.
 
 **Profile loading flow:**
 - `ProfileResolver` loads profile data from route params (`accountName` + optional `provider`)
@@ -47,11 +49,11 @@ Everything is client-side; there is no server except the optional local shortene
 ### Room service (`src/app/room/room.service.ts`)
 - `RoomService` - manages trystero P2P room for data sync
 - `joinRoom(accountName)` - joins room named after account
-- `whoami` broadcasts for signed-in users
+- `whoami` and `post` MessageActions for broadcasting
 
 ### Crypto service (`src/app/crypto/crypto.service.ts`)
 - Centralized cryptographic operations
-- WebAuthn sign/verify, public key import, DER conversion
+- WebAuthn sign/verify, public key import, DER conversion, base64 helpers
 
 ### Post service (`src/app/post/post.service.ts`)
 - `PostService` - manages posts stored in IndexedDB via `idb`

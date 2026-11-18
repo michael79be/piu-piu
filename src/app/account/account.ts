@@ -1,4 +1,4 @@
-import { Component, computed, inject, OnInit, signal } from '@angular/core';
+import { Component, computed, inject, OnInit, signal, OnDestroy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router } from '@angular/router';
@@ -25,7 +25,7 @@ type MenuItem = {
   templateUrl: './account.html',
   styleUrl: './account.scss'
 })
-export class Account implements OnInit {
+export class Account implements OnInit, OnDestroy {
   private route = inject(ActivatedRoute);
   private router = inject(Router);
   private errorService = inject(ErrorService);
@@ -47,6 +47,43 @@ export class Account implements OnInit {
   isSignedIn = this.authService.isSignedIn;
   storedSigner = this.authService.storedSigner;
   displayName = this.authService.displayName;
+
+  private handlePostsUpdated = (event: CustomEvent) => {
+    const detail = event.detail;
+    if (!detail?.accountName || detail.accountName === this.accountName()) {
+      this.loadPosts();
+    }
+  };
+
+  constructor() {
+    this.library.addIcons([lasArrowLeft, lasEllipsisH, lasHome, larEdit, larUser, lasUsers, lasComment, lasPaperPlane, lasShieldAlt, lasUserSecret, lasUser, lasClock]);
+  }
+
+  ngOnInit(): void {
+    this.profileData.set(this.route.snapshot.data['profileData']);
+    const routeAccountName = this.route.snapshot.paramMap.get('accountName');
+    const profile = this.profileData();
+    this.accountName.set(routeAccountName ?? profile?.accountName ?? profile?.username ?? null);
+
+    if (this.accountName()) {
+      this.roomService.joinRoom(this.accountName()!);
+    }
+
+    this.loadPosts();
+
+    const signInParam = this.route.snapshot.queryParamMap.get('signIn');
+    if (signInParam === 'true') {
+      this.showAccountMenu.set(true);
+      this.performSignIn();
+    }
+
+    // Listen for P2P post events
+    window.addEventListener('piu-piu:load-posts', this.handlePostsUpdated as EventListener);
+  }
+
+  ngOnDestroy(): void {
+    window.removeEventListener('piu-piu:load-posts', this.handlePostsUpdated as EventListener);
+  }
 
   posts = signal<PostData[]>([]);
 
@@ -72,29 +109,6 @@ export class Account implements OnInit {
     }
   });
 
-  constructor() {
-    this.library.addIcons([lasArrowLeft, lasEllipsisH, lasHome, larEdit, larUser, lasUsers, lasComment, lasPaperPlane, lasShieldAlt, lasUserSecret, lasUser, lasClock]);
-  }
-
-  async ngOnInit(): Promise<void> {
-    this.profileData.set(this.route.snapshot.data['profileData']);
-    const routeAccountName = this.route.snapshot.paramMap.get('accountName');
-    const profile = this.profileData();
-    this.accountName.set(routeAccountName ?? profile?.accountName ?? profile?.username ?? null);
-
-    if (this.accountName()) {
-      await this.roomService.joinRoom(this.accountName()!);
-    }
-
-    await this.loadPosts();
-
-    const signInParam = this.route.snapshot.queryParamMap.get('signIn');
-    if (signInParam === 'true') {
-      this.showAccountMenu.set(true);
-      await this.performSignIn();
-    }
-  }
-
   private async performSignIn(): Promise<void> {
     const accountName = this.accountName();
     if (null === accountName) {
@@ -114,18 +128,18 @@ export class Account implements OnInit {
     const profile = this.profileData();
     console.log('[Account.loadPosts] accountName:', accountName);
     console.log('[Account.loadPosts] profile:', profile);
-    if (!accountName || !profile?.publicKey) {
-      console.log('[Account.loadPosts] missing accountName or publicKey');
+    if (!accountName) {
+      console.log('[Account.loadPosts] missing accountName');
       this.posts.set([]);
       return;
     }
-    console.log('[Account.loadPosts] publicKey length:', profile.publicKey.length);
-    const verifiedPosts = await this.postService.getVerifiedPosts(accountName, profile.publicKey);
+    const verifiedPosts = await this.postService.getVerifiedPosts(accountName);
     console.log('[Account.loadPosts] verifiedPosts count:', verifiedPosts.length);
     this.posts.set(verifiedPosts);
   }
 
   onHome(): void {
+    this.router.navigateByUrl('/');
   }
 
   openPostDialog(): void {
@@ -137,8 +151,9 @@ export class Account implements OnInit {
       closable: true,
       dismissible: true,
       data: { accountName },
-    }).subscribe((post) => {
+    }).subscribe(async (post) => {
       if (post) {
+        await this.roomService.broadcastPost(post);
         this.loadPosts();
       }
     });

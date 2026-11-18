@@ -9,9 +9,10 @@ export interface PostData {
   senderAccount: string;
   timestamp: number;
   content: string;
-  signature?: Uint8Array;
-  authenticatorData?: Uint8Array;
-  clientData?: Uint8Array;
+  publicKey: string; // base64
+  signature: string; // base64
+  authenticatorData: string; // base64
+  clientData: string; // base64
 }
 
 interface PostsDB extends DBSchema {
@@ -27,7 +28,20 @@ export class PostService {
   private cryptoService = inject(CryptoService);
   private dbCache = new Map<string, Promise<IDBPDatabase<PostsDB>>>();
 
-  private getDB(accountName: string): Promise<IDBPDatabase<PostsDB>> {
+  private bytesToBase64(bytes: Uint8Array): string {
+    return btoa(String.fromCharCode(...bytes));
+  }
+
+  private base64ToBytes(base64: string): Uint8Array {
+    const binary = atob(base64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) {
+      bytes[i] = binary.charCodeAt(i);
+    }
+    return bytes;
+  }
+
+  getDB(accountName: string): Promise<IDBPDatabase<PostsDB>> {
     if (!this.dbCache.has(accountName)) {
       this.dbCache.set(accountName, openDB<PostsDB>(accountName, 1, {
         upgrade(db) {
@@ -38,7 +52,7 @@ export class PostService {
     return this.dbCache.get(accountName)!;
   }
 
-  private createSigningString(post: Omit<PostData, 'signature' | 'authenticatorData' | 'clientData'>): string {
+  private createSigningString(post: Omit<PostData, 'signature' | 'authenticatorData' | 'clientData' | 'publicKey'>): string {
     return `${post.uuid}:${post.senderAccount}:${post.timestamp}:${post.content}`;
   }
 
@@ -55,6 +69,7 @@ export class PostService {
       senderAccount: signer.account,
       timestamp,
       content,
+      publicKey: signer.publicKey,
     };
 
     const signingString = this.createSigningString(postData);
@@ -90,9 +105,9 @@ export class PostService {
       const post: PostData = {
         ...postData,
         sender: username,
-        signature,
-        authenticatorData: authData,
-        clientData: clientData,
+        signature: this.bytesToBase64(signature),
+        authenticatorData: this.bytesToBase64(authData),
+        clientData: this.bytesToBase64(clientData),
       };
 
       const db = await this.getDB(accountName);
@@ -128,36 +143,22 @@ export class PostService {
   private deserializePost(post: Record<string, unknown>): PostData {
     console.log('[deserializePost] raw post keys:', Object.keys(post));
     console.log('[deserializePost] signature present:', !!post['signature']);
-    console.log('[deserializePost] signature type:', typeof post['signature'], Array.isArray(post['signature']));
     console.log('[deserializePost] authenticatorData present:', !!post['authenticatorData']);
     console.log('[deserializePost] clientData present:', !!post['clientData']);
+    console.log('[deserializePost] publicKey present:', !!post['publicKey']);
     
-    const toUint8Array = (val: unknown): Uint8Array | undefined => {
-      if (!val) return undefined;
-      if (val instanceof Uint8Array) return val;
-      if (Array.isArray(val)) return new Uint8Array(val);
-      // Handle object with numeric keys (JSON-serialized Uint8Array)
-      const obj = val as Record<string, number>;
-      const keys = Object.keys(obj);
-      if (keys.length === 0) return new Uint8Array(0);
-      const maxKey = Math.max(...keys.map(k => parseInt(k, 10)));
-      const arr = new Uint8Array(maxKey + 1);
-      for (const key of keys) {
-        arr[parseInt(key, 10)] = obj[key];
-      }
-      return arr;
-    };
-
     const result = {
       ...post,
-      signature: toUint8Array(post['signature']),
-      authenticatorData: toUint8Array(post['authenticatorData']),
-      clientData: toUint8Array(post['clientData']),
+      signature: post['signature'] as string,
+      authenticatorData: post['authenticatorData'] as string,
+      clientData: post['clientData'] as string,
+      publicKey: post['publicKey'] as string,
     } as PostData;
     
     console.log('[deserializePost] result signature length:', result.signature?.length);
     console.log('[deserializePost] result authenticatorData length:', result.authenticatorData?.length);
     console.log('[deserializePost] result clientData length:', result.clientData?.length);
+    console.log('[deserializePost] result publicKey length:', result.publicKey?.length);
     return result;
   }
 
@@ -166,10 +167,10 @@ export class PostService {
     await db.delete('posts', uuid);
   }
 
-  async verifyPost(post: PostData, publicKey: number[]): Promise<boolean> {
+  async verifyPost(post: PostData): Promise<boolean> {
     if (!post.signature || post.signature.length === 0) return false;
 
-    const postWithoutSig: Omit<PostData, 'signature' | 'authenticatorData' | 'clientData'> = {
+    const postWithoutSig: Omit<PostData, 'signature' | 'authenticatorData' | 'clientData' | 'publicKey'> = {
       uuid: post.uuid,
       sender: post.sender,
       senderAccount: post.senderAccount,
@@ -181,12 +182,16 @@ export class PostService {
     const expectedChallenge = await this.hashChallenge(signingString);
 
     try {
-      const clientDataBytes = post.clientData ?? new Uint8Array(0);
+      // Decode base64 fields
+      const clientDataBytes = this.base64ToBytes(post.clientData);
+      const authDataBytes = this.base64ToBytes(post.authenticatorData);
+      const signatureBytes = this.base64ToBytes(post.signature);
+      const publicKeyBytes = this.base64ToBytes(post.publicKey);
+
       const clientDataHash = new Uint8Array(
         await window.crypto.subtle.digest('SHA-256', clientDataBytes as BufferSource)
       );
 
-      const authDataBytes = post.authenticatorData ?? new Uint8Array(0);
       const signedData = new Uint8Array(authDataBytes.length + clientDataHash.length);
       signedData.set(authDataBytes, 0);
       signedData.set(clientDataHash, authDataBytes.length);
@@ -213,16 +218,17 @@ export class PostService {
       console.log('[verifyPost] clientData length:', clientDataBytes.length);
       console.log('[verifyPost] clientDataHash length:', clientDataHash.length);
       console.log('[verifyPost] signedData length:', signedData.length);
-      console.log('[verifyPost] signature length:', post.signature.length);
-      console.log('[verifyPost] publicKey length:', publicKey.length);
+      console.log('[verifyPost] signature length:', signatureBytes.length);
+      console.log('[verifyPost] publicKey length:', publicKeyBytes.length);
 
       if (!actualChallenge || !this.bytesEqual(expectedChallenge, actualChallenge)) {
         console.error('[verifyPost] Challenge mismatch!');
         return false;
       }
 
-      const cryptoKey = await this.cryptoService.importPublicKey(publicKey);
-      const rawSignature = this.cryptoService.derToRawSignature(post.signature);
+      const publicKeyBase64 = this.bytesToBase64(publicKeyBytes);
+      const cryptoKey = await this.cryptoService.importPublicKey(publicKeyBase64);
+      const rawSignature = this.cryptoService.derToRawSignature(signatureBytes);
 
       console.log('[verifyPost] rawSignature length:', rawSignature.length);
 
@@ -257,14 +263,13 @@ export class PostService {
     return true;
   }
 
-  async getVerifiedPosts(accountName: string, publicKey: number[]): Promise<PostData[]> {
+  async getVerifiedPosts(accountName: string): Promise<PostData[]> {
     const allPosts = await this.getAllPosts(accountName);
     console.log('[getVerifiedPosts] total posts:', allPosts.length);
-    console.log('[getVerifiedPosts] publicKey length:', publicKey.length);
     const verifiedPosts: PostData[] = [];
     for (const post of allPosts) {
       console.log('[getVerifiedPosts] checking post:', post.uuid);
-      if (await this.verifyPost(post, publicKey)) {
+      if (await this.verifyPost(post)) {
         console.log('[getVerifiedPosts] post verified:', post.uuid);
         verifiedPosts.push(post);
       } else {
