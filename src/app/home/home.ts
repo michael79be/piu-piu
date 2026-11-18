@@ -1,5 +1,5 @@
-import { Component, inject, signal, computed } from '@angular/core';
-import { Router } from '@angular/router';
+import { Component, inject, signal, computed, effect } from '@angular/core';
+import { Router, ActivatedRoute } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { TuiButton, TuiTextfield, TuiInput } from '@taiga-ui/core';
 import { TuiCardLarge } from '@taiga-ui/layout';
@@ -15,6 +15,7 @@ import { Providers, LocalhostProviderUrl, getAvailableProviders, getProviderByUr
 })
 export class Home {
   private router = inject(Router);
+  private route = inject(ActivatedRoute);
 
   showSignInInput = signal(false);
   signInInput = signal('');
@@ -22,6 +23,15 @@ export class Home {
   availableProviders = computed(() => getAvailableProviders(this.isLocalhost));
   providerUrls = computed(() => this.availableProviders().map(p => p.url));
   selectedProviderUrl = signal<string>(this.isLocalhost ? LocalhostProviderUrl : getDefaultProvider().url);
+
+  constructor() {
+    effect(() => {
+      const signIn = this.route.snapshot.queryParamMap.get('signIn');
+      if (signIn === 'true') {
+        this.showSignInInput.set(true);
+      }
+    });
+  }
 
   onSignIn(): void {
     this.showSignInInput.set(true);

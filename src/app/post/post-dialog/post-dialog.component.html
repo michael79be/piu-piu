@@ -1,0 +1,41 @@
+<div class="p-4">
+  <h2 class="text-xl font-semibold text-gray-900 mb-4">Create Post</h2>
+
+  <tui-textfield appearance="outline" class="w-full mb-4">
+    <textarea
+      [(ngModel)]="content"
+      placeholder="What's happening?"
+      rows="4"
+      class="resize-none"
+      tuiTextarea
+    ></textarea>
+  </tui-textfield>
+
+  <div class="flex justify-end gap-2">
+    <button
+      tuiButton
+      appearance="flat"
+      (click)="close()"
+    >
+      Cancel
+    </button>
+    <button
+      tuiButton
+      appearance="primary"
+      (click)="submit()"
+      [disabled]="!content().trim() || loading()"
+    >
+      @if (loading()) {
+        <span class="flex items-center gap-1">
+          <svg class="animate-spin h-4 w-4" viewBox="0 0 24 24">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" fill="none"></circle>
+            <path class="opacity-75" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" fill="none" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+          </svg>
+          Posting...
+        </span>
+      } @else {
+        Post
+      }
+    </button>
+  </div>
+</div>

@@ -1,6 +1,6 @@
 # Piu-Piu
 
-Decentralized social network like Twitter. Full client-side, no backend, hosted on GitHub Pages. Account creation via URL shortener service (is.gd / v.gd / localhost provider). Auth via WebAuthn only.
+Decentralized social network like Twitter. Full client-side, no backend, hosted on GitHub Pages. Account creation via URL shortener service (is.gd / v.gd / localhost provider). Auth via WebAuthn only. P2P data sync via trystero.
 
 ## Stack
 
@@ -8,6 +8,8 @@ Decentralized social network like Twitter. Full client-side, no backend, hosted 
 - Tailwind CSS v4 via PostCSS, Taiga UI 5, angular-line-awesome, vitest, jsdom
 - office-addin-dev-certs for local SSL
 - Local URL shortener provider (`provider.mjs`, `:3000`) for development
+- trystero for WebRTC-based P2P communication
+- idb for IndexedDB wrapper
 
 ## Rules
 
@@ -46,6 +48,66 @@ Local provider (`provider.mjs` / `provider/`) runs on `:3000` and persists to `p
 
 - `ErrorService` - shows toast notifications using Taiga UI toasts (`TuiToastService`)
 
+### Auth service (`src/app/auth/auth.service.ts`)
+
+- `AuthService` - manages WebAuthn authentication state using signals
+- `isSignedIn` - signal for authentication state
+- `storedSigner` - signal containing signer info from sessionStorage
+- `displayName` - signal for display name
+- `signerMatchesAccount` - computed checking if signer matches current route account
+- `signIn(accountName)` - performs WebAuthn credential.get with accountName as challenge
+- `signOut()` - clears sessionStorage and resets signals
+- `restoreSession()` - called in constructor, restores from sessionStorage
+
+### Room service (`src/app/room/room.service.ts`)
+
+- `RoomService` - manages trystero P2P room for data sync
+- `joinRoom(accountName)` - joins room named after account
+- Uses `MessageAction` for `whoami` broadcasts
+- Signed-in users announce themselves with signerInfo; guests participate but don't announce
+- Logs join/leave/whoami events to console
+
+### Post service (`src/app/post/post.service.ts`)
+
+- `PostService` - manages posts stored in IndexedDB via `idb`
+- `createPost(accountName, content)` - creates post with uuid, sender, timestamp, content, and WebAuthn signature
+- `getPost(uuid)` - retrieves single post by uuid
+- `getAllPosts(accountName)` - retrieves all posts sorted by timestamp descending
+- `getVerifiedPosts(accountName, publicKey)` - retrieves and verifies posts using profile public key, filters invalid
+- `deletePost(uuid)` - deletes post by uuid
+- `verifyPost(post, publicKey)` - verifies post signature using Web Crypto API with provided public key
+
+**Post data structure:**
+- `uuid` - crypto.randomUUID()
+- `sender` - username from signer
+- `senderAccount` - account name from signer
+- `timestamp` - Date.now()
+- `content` - user input
+- `signature` - WebAuthn ECDSA P-256 signature over `${uuid}:${senderAccount}:${timestamp}:${content}`
+
+**Signature flow:**
+- Signing: `signData()` uses Web Crypto API `sign()` with signer's private key
+- Verification: `verifyPost()` reconstructs signing string, removes signature, verifies with public key
+- DER to raw signature conversion for Web Crypto API compatibility
+
+### Post dialog (`src/app/post/post-dialog/`)
+
+- `PostDialogComponent` - Taiga UI routable dialog via `TuiDialogService`
+- Opens from Account page Post button (only when `signerMatchesAccount` is true)
+- Textarea for content input
+- On submit: calls `PostService.createPost()`, reloads posts list
+- Uses `POLYMORPHEUS_CONTEXT` for dialog context (close/completeWith)
+- Returns `PostData` observable via `context.completeWith()`
+
+### Crypto service (`src/app/crypto/crypto.service.ts`)
+
+- `CryptoService` - centralized cryptographic operations
+- `webAuthnSign(challenge, publicKey)` - signs challenge using `navigator.credentials.get`
+- `verifyWebAuthnSignature(publicKey, challenge, credential)` - verifies WebAuthn assertion
+- `importPublicKey(rawKey)` - imports SPKI public key for Web Crypto API
+- `derToRawSignature(derSig)` - converts DER to raw r|s for ECDSA P-256
+- `padChallenge(challenge)` - ensures challenge is 32 bytes for Web Crypto
+
 ### Routes (custom UrlMatcher for @ prefix)
 
 - `/` - Home page
@@ -72,23 +134,31 @@ All routes use lazy-loaded components (`loadComponent`).
 ### Account screen (`src/app/account/`)
 
 - Light mode, X.com-inspired layout using Taiga UI components (`TuiButton`, `TuiDropdown`, `TuiDataList`) and `angular-line-awesome` (`la-icon` component with `las`/`lar` prefixes)
-- Left navigation: Home, Post
-- Top bar: User menu with sign in/out
-- Main content area displays profile information
+- Left navigation: Home, Post (when signed in)
+- Top bar: User menu with sign in/out/register
+- Main content area displays profile information and posts feed
 - Uses `ProfileResolver` to load profile data from route params
-- WebAuthn sign in with cryptographic verification via `checkSigner`
+- On init: joins trystero room via `RoomService.joinRoom(accountName)`
+- Loads posts from IndexedDB via `PostService.getAllPosts()`
+- Uses `AuthService` for authentication state
 
 **Profile loading flow:**
 - `ProfileResolver` loads profile data from route params (`accountName` + optional `provider`)
 - Always uses provider service to lookup short URL and decode profile from `/profile/:encoded` path
 - Profile data is stored in `ProfileService` for component access
-- `checkSigner(signer)` runs when there's a stored signer in `sessionStorage`
+
+**Post flow:**
+- Post button opens `PostDialogComponent` via `TuiDialogService`
+- User enters content, submits
+- `PostService.createPost(content)` signs with WebAuthn, stores in IndexedDB
+- Posts list refreshes, displays newest first
+- Each post shows sender, timestamp, content, and signature status
 
 **signIn flow:**
 - Uses `navigator.credentials.get` to authenticate (not create a new credential)
 - The challenge is the accountName (accountName is converted to Uint8Array and used as the WebAuthn challenge)
-- Stores signer info in sessionStorage
-- Calls `checkSigner` for cryptographic authentication verification
+- Stores signer info in sessionStorage via `AuthService`
+- `AuthService.checkSigner` performs cryptographic verification
 
 **checkSigner flow:**
 - Separate authentication process that verifies:

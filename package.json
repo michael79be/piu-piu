@@ -24,10 +24,12 @@
     "@taiga-ui/layout": "^5.33.0",
     "@tailwindcss/postcss": "^4.3.5",
     "angular-line-awesome": "^22.0.0",
+    "idb": "^8.0.4",
     "office-addin-dev-certs": "^3.0.1",
     "postcss": "^8.5.33",
     "rxjs": "~7.8.0",
     "tailwindcss": "^4.3.5",
+    "trystero": "^0.27.0",
     "tslib": "^2.3.0"
   },
   "devDependencies": {
