@@ -1,6 +1,6 @@
 # Piu-Piu
 
-Decentralized social network like Twitter. Full client-side, no backend, hosted on GitHub Pages. Account creation via URL shortener service (is.gd / v.gd / localhost provider). Auth via WebAuthn only. P2P data sync via trystero.
+Decentralized social network like Twitter. Full client-side, no backend, hosted on piu-piu.top (custom domain). Account creation via URL shortener service (is.gd / v.gd / localhost provider). Auth via WebAuthn only. P2P data sync via trystero.
 
 ⚠️ **IMPORTANT:** Anything published on the network is public. Everything is signed but not encrypted. There are no private messages. Data is synchronized unencrypted over multiple devices on the whole network.
 
@@ -88,7 +88,7 @@ npm start
 npm run build
 ```
 
-Production build output goes to `dist/`.
+Production build output goes to `dist/` (no base-href, for custom domain).
 
 ## Test
 
@@ -101,3 +101,4 @@ Runs the test suite (vitest via Angular CLI).
 ## Release
 
 Deployed to GitHub Pages via the `pull_request.yml` GitHub Actions workflow.
+Custom domain: piu-piu.top (configured in GitHub Pages settings).
