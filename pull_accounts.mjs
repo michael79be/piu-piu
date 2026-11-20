@@ -1,12 +1,18 @@
 import { joinRoom } from 'trystero';
 import { writeFileSync, readFileSync, existsSync, mkdirSync } from 'fs';
 import { resolve } from 'path';
+import { RTCPeerConnection } from 'werift';
 
 const APP_ID = 'piu-piu';
 const ROOM_NAME = 'piu-piu';
-const COLLECTION_TIME = 60000; // 1 minute
 const CONNECT_TIMEOUT = 30000; // 30 seconds to connect
-const OUTPUT_PATH = resolve('accounts/public.json');
+
+// Parse command line arguments
+// Usage: node pull_accounts.mjs [outputPath] [collectionTimeMs]
+// Default: outputPath = 'accounts/public.json', collectionTimeMs = 60000 (1 minute)
+const args = process.argv.slice(2);
+const OUTPUT_PATH = resolve(args[0] || 'accounts/public.json');
+const COLLECTION_TIME = parseInt(args[1] || '60000', 10);
 
 /**
  * @typedef {Object} SignerInfo
@@ -44,7 +50,7 @@ async function loadExistingAccounts() {
 }
 
 function saveAccounts(accounts) {
-  const dir = resolve('accounts');
+  const dir = resolve(OUTPUT_PATH, '..');
   if (!existsSync(dir)) {
     mkdirSync(dir, { recursive: true });
   }
@@ -61,9 +67,11 @@ function saveAccounts(accounts) {
 
 async function main() {
   console.log(`Connecting to ${APP_ID}/${ROOM_NAME}...`);
+  console.log(`Output: ${OUTPUT_PATH}, Collection time: ${COLLECTION_TIME}ms`);
 
+  // Use trystero with rtcPolyfill = RTCPeerConnection (werift)
   const room = joinRoom(
-    { appId: APP_ID },
+    { appId: APP_ID, rtcPolyfill: RTCPeerConnection },
     ROOM_NAME
   );
 
@@ -75,15 +83,20 @@ async function main() {
 
   whoamiAction.onMessage((data, context) => {
     collected++;
+    const signerInfo = data.signerInfo;
+    if (!signerInfo) {
+      console.warn('[whoami] missing signerInfo in payload:', data);
+      return;
+    }
     const entry = {
-      username: data.username,
-      account: data.account,
-      publicKey: data.publicKey,
-      profileUrl: data.profileUrl,
+      username: signerInfo.username,
+      account: signerInfo.account,
+      publicKey: signerInfo.publicKey,
+      profileUrl: signerInfo.profileUrl,
       lastSeen: Date.now(),
     };
-    accounts.set(data.account, entry);
-    console.log(`[whoami] @${data.account} (${data.username}) from peer ${context.peerId}`);
+    accounts.set(signerInfo.account, entry);
+    console.log(`[whoami] @${signerInfo.account} (${signerInfo.username}) from peer ${context.peerId}`);
   });
 
   room.onPeerJoin((context) => {
@@ -116,7 +129,7 @@ async function main() {
   console.log('Waiting 10s for peer discovery...');
   await new Promise(resolve => setTimeout(resolve, 10000));
 
-  console.log('Collecting whoami for 60 seconds...');
+  console.log(`Collecting whoami for ${COLLECTION_TIME}ms...`);
 
   // Wait for collection period
   await new Promise(resolve => setTimeout(resolve, COLLECTION_TIME));

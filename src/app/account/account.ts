@@ -71,6 +71,11 @@ export class Account implements OnInit, OnDestroy {
 
     this.loadPosts();
 
+    // Join global room if already signed in (session restore)
+    if (this.authService.isSignedIn()) {
+      this.roomService.joinGlobalRoom().catch(err => console.error('Failed to join global room:', err));
+    }
+
     const signInParam = this.route.snapshot.queryParamMap.get('signIn');
     if (signInParam === 'true') {
       this.showAccountMenu.set(true);
@@ -115,7 +120,10 @@ export class Account implements OnInit, OnDestroy {
       this.errorService.showError('No account name set');
       return;
     }
-    await this.authService.signIn(accountName);
+    const success = await this.authService.signIn(accountName);
+    if (success) {
+      this.roomService.joinGlobalRoom().catch(err => console.error('Failed to join global room:', err));
+    }
     this.router.navigate([], { queryParams: { signIn: null }, queryParamsHandling: 'merge', replaceUrl: true });
   }
 
@@ -165,6 +173,7 @@ export class Account implements OnInit, OnDestroy {
   signOut(): void {
     this.authService.signOut();
     this.roomService.leaveRoom();
+    this.roomService.leaveGlobalRoom();
   }
 
   formatTime(timestamp: number): string {
