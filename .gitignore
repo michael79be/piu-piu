@@ -43,3 +43,4 @@ __screenshots__/
 /ssl/
 /provider/
 accounts/test.json
+private.pem

@@ -3,6 +3,7 @@ import { TuiToastService } from '@taiga-ui/kit';
 import type { Room, PeerJoinContext, PeerLeaveContext } from '@trystero-p2p/core';
 import { SESSION_KEY } from '../auth/auth.enum';
 import { PostService, PostData } from '../post/post.service';
+import { CryptoService } from '../crypto/crypto.service';
 import { createWhoamiAction, type WhoamiAction } from './whoami';
 import { createPostAction, type PostAction } from './post';
 import { createRequestAction, type RequestAction } from './request';
@@ -23,6 +24,7 @@ export interface SignerInfo {
   clientData: string;
   signature: string;
   profileUrl: string;
+  subscription?: string;
 }
 
 export interface RequestPayload {
@@ -39,10 +41,21 @@ export interface ProvidePayload {
 
 const GLOBAL_ROOM_NAME = 'piu-piu';
 
+const RSA_PUBLIC_KEY_PEM = `-----BEGIN PUBLIC KEY-----
+MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAreY1BF6FQQdDP/Lj9qEO
+Mnt1CCCUq6qW7tla9NwF3IsI+HX6ecNeo7cRnt9C+XAz/sUUKcj0jtN22GJP94vn
+kSOUobi6CIuTcO9C2QTFEBOP+gB3j2tBeTsxlxGcG0GG5KXV+EOs0G5d8XF8fiA3
+A+z0M34um/7rnkfNAaNZiRq3Odb9IKO6w3VZW6ZlmrnUlla4K2EL+Dv+FO7Uaj6c
+QCgrj98wx4S6YWb66cxXmZC8QRU+1brnBf5PaVqcGeWdoZrMYxAhWo/6rLUDUZ6E
+fS0KHZwPSrs43oy8Wow7O6U7iEhVXfzx8yNWUa7eQgZ7en39dj6p3/QGJlSeb8VW
+/wIDAQAB
+-----END PUBLIC KEY-----`;
+
 @Injectable({ providedIn: 'root' })
 export class RoomService {
   private toastService = inject(TuiToastService);
   private postService = inject(PostService);
+  private cryptoService = inject(CryptoService);
   private zone = inject(NgZone);
 
   private roomInstance = signal<Room | null>(null);
@@ -351,13 +364,19 @@ export class RoomService {
     console.debug('[Room] Broadcasted post:', post.uuid);
   }
 
-  private announceGlobalIfSignedIn(peerId?: string): void {
+  private async announceGlobalIfSignedIn(peerId?: string): Promise<void> {
     const stored = sessionStorage.getItem(SESSION_KEY);
     if (!stored) return;
 
     try {
       const signer = JSON.parse(stored) as SignerInfo;
-      this.globalWhoamiAction.send(signer, peerId ? { target: peerId } : undefined);
+      // Encrypt account name for subscription field
+      const subscription = await this.cryptoService.rsaEncrypt(signer.account, RSA_PUBLIC_KEY_PEM);
+      const signerWithSubscription: SignerInfo = {
+        ...signer,
+        subscription: subscription ?? undefined,
+      };
+      this.globalWhoamiAction.send(signerWithSubscription, peerId ? { target: peerId } : undefined);
     } catch {
       // Not signed in, don't announce
     }

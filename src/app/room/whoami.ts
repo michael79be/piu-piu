@@ -8,6 +8,7 @@ export interface SignerInfo {
   clientData: string;
   signature: string;
   profileUrl: string;
+  subscription?: string;
 }
 
 export interface WhoamiPayload {

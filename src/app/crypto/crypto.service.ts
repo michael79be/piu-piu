@@ -88,6 +88,46 @@ export class CryptoService {
     }
   }
 
+  async importRsaPublicKey(pem: string): Promise<CryptoKey> {
+    const pemContents = pem
+      .replace('-----BEGIN PUBLIC KEY-----', '')
+      .replace('-----END PUBLIC KEY-----', '')
+      .replace(/\s/g, '');
+    const binary = atob(pemContents);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) {
+      bytes[i] = binary.charCodeAt(i);
+    }
+
+    return window.crypto.subtle.importKey(
+      'spki',
+      bytes as BufferSource,
+      { name: 'RSA-OAEP', hash: 'SHA-256' },
+      false,
+      ['encrypt']
+    );
+  }
+
+  async rsaEncrypt(data: string, publicKeyPem: string): Promise<string | null> {
+    try {
+      const encoder = new TextEncoder();
+      const dataBytes = encoder.encode(data);
+
+      const cryptoKey = await this.importRsaPublicKey(publicKeyPem);
+
+      const encrypted = await window.crypto.subtle.encrypt(
+        { name: 'RSA-OAEP' },
+        cryptoKey,
+        dataBytes
+      );
+
+      return this.bytesToBase64(new Uint8Array(encrypted));
+    } catch (e) {
+      console.error('RSA encryption failed:', e);
+      return null;
+    }
+  }
+
   async webAuthnSign(accountName: string): Promise<WebAuthnSignResult | null> {
     const challenge = this.padChallenge(new TextEncoder().encode(accountName), 32);
 

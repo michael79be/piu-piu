@@ -24,7 +24,7 @@ jobs:
 
       - run: npm ci
 
-      - run: node pull_accounts.mjs
+      - run: node pull_accounts.mjs accounts/public.json 60000
 
       - name: Configure Git
         run: |

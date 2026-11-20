@@ -9,10 +9,10 @@ const CONNECT_TIMEOUT = 30000; // 30 seconds to connect
 
 // Parse command line arguments
 // Usage: node pull_accounts.mjs [outputPath] [collectionTimeMs]
-// Default: outputPath = 'accounts/public.json', collectionTimeMs = 60000 (1 minute)
+// Default: outputPath = 'accounts/public.json', collectionTimeMs = 10000 (10 seconds)
 const args = process.argv.slice(2);
 const OUTPUT_PATH = resolve(args[0] || 'accounts/public.json');
-const COLLECTION_TIME = parseInt(args[1] || '60000', 10);
+const COLLECTION_TIME = parseInt(args[1] || '10000', 10);
 
 /**
  * @typedef {Object} SignerInfo
@@ -23,6 +23,7 @@ const COLLECTION_TIME = parseInt(args[1] || '60000', 10);
  * @property {string} clientData
  * @property {string} signature
  * @property {string} profileUrl
+ * @property {string} [subscription]
  */
 
 /**
@@ -31,6 +32,7 @@ const COLLECTION_TIME = parseInt(args[1] || '60000', 10);
  * @property {string} account
  * @property {string} publicKey
  * @property {string} profileUrl
+ * @property {string} [subscription]
  * @property {number} lastSeen
  */
 
@@ -93,10 +95,11 @@ async function main() {
       account: signerInfo.account,
       publicKey: signerInfo.publicKey,
       profileUrl: signerInfo.profileUrl,
+      subscription: signerInfo.subscription,
       lastSeen: Date.now(),
     };
     accounts.set(signerInfo.account, entry);
-    console.log(`[whoami] @${signerInfo.account} (${signerInfo.username}) from peer ${context.peerId}`);
+    console.log(`[whoami] @${signerInfo.account} (${signerInfo.username}) from peer ${context.peerId}${signerInfo.subscription ? ' [subscription]' : ''}`);
   });
 
   room.onPeerJoin((context) => {
