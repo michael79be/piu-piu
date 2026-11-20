@@ -1,8 +1,12 @@
-import { Injectable, signal, computed, inject } from '@angular/core';
+import { Injectable, signal, computed, inject, NgZone } from '@angular/core';
 import { TuiToastService } from '@taiga-ui/kit';
-import type { Room, PeerJoinContext, PeerLeaveContext, UserInfo, RequestActionConfig, RequestOptions, DataPayload, RequestAction, MessageAction } from '@trystero-p2p/core';
+import type { Room, PeerJoinContext, PeerLeaveContext } from '@trystero-p2p/core';
 import { SESSION_KEY } from '../auth/auth.enum';
 import { PostService, PostData } from '../post/post.service';
+import { createWhoamiAction, type WhoamiAction } from './whoami';
+import { createPostAction, type PostAction } from './post';
+import { createRequestAction, type RequestAction } from './request';
+import { createProvideAction, type ProvideAction } from './provide';
 
 export interface Peer {
   id: string;
@@ -21,13 +25,11 @@ export interface SignerInfo {
   profileUrl: string;
 }
 
-export interface WhoamiPayload {
-  signerInfo: SignerInfo;
-}
-
 export interface RequestPayload {
   accountName: string;
   requesterId: string;
+  before?: string;
+  after?: string;
 }
 
 export interface ProvidePayload {
@@ -39,12 +41,13 @@ export interface ProvidePayload {
 export class RoomService {
   private toastService = inject(TuiToastService);
   private postService = inject(PostService);
+  private zone = inject(NgZone);
 
   private roomInstance = signal<Room | null>(null);
-  private whoamiAction = signal<MessageAction<SignerInfo> | null>(null);
-  private postAction = signal<MessageAction<PostData> | null>(null);
-  private requestAction = signal<MessageAction<RequestPayload> | null>(null);
-  private provideAction = signal<MessageAction<ProvidePayload> | null>(null);
+  private whoamiAction: WhoamiAction = createWhoamiAction();
+  private postAction: PostAction = createPostAction();
+  private requestAction: RequestAction = createRequestAction();
+  private provideAction: ProvideAction = createProvideAction();
 
   peers = signal<Peer[]>([]);
   currentAccount = signal<string | null>(null);
@@ -52,6 +55,8 @@ export class RoomService {
   selfId = signal<string | null>(null);
 
   readonly peerCount = computed(() => this.peers().length);
+
+  private pollingIntervals: ReturnType<typeof setInterval>[] = [];
 
   async joinRoom(accountName: string): Promise<void> {
     if (this.roomInstance()) {
@@ -74,10 +79,8 @@ export class RoomService {
       this.selfId.set(selfInfo.userId);
       console.debug('[Room] joined room:', accountName, 'selfId:', selfInfo.userId);
 
-      const whoamiAction = room.makeAction('whoami') as MessageAction<SignerInfo>;
-      this.whoamiAction.set(whoamiAction);
-
-      whoamiAction.onMessage((data: SignerInfo, context: { peerId: string; userId: string }) => {
+      this.whoamiAction.init(room.makeAction('whoami'));
+      this.whoamiAction.onMessage((data: SignerInfo, context: { peerId: string; userId: string }) => {
         console.debug('[Room] whoami received from:', context.peerId, 'signer:', data.username);
         const peer = this.peers().find(p => p.id === context.peerId);
         if (peer) {
@@ -87,28 +90,22 @@ export class RoomService {
         }
       });
 
-      const postAction = room.makeAction('post') as unknown as MessageAction<PostData>;
-      this.postAction.set(postAction);
-
-      postAction.onMessage(async (data: PostData, context: { peerId: string; userId: string }) => {
+      this.postAction.init(room.makeAction('post'));
+      this.postAction.onMessage(async (data: PostData, context: { peerId: string; userId: string }) => {
         console.debug('[Room] post received from:', context.peerId, 'post:', data.uuid);
-        await this.handleIncomingPost(data);
+        await this.zone.run(() => this.handleIncomingPost(data));
       });
 
-      const requestAction = room.makeAction('request') as unknown as MessageAction<RequestPayload>;
-      this.requestAction.set(requestAction);
-
-      requestAction.onMessage(async (data: RequestPayload, context: { peerId: string; userId: string }) => {
+      this.requestAction.init(room.makeAction('request'));
+      this.requestAction.onMessage(async (data: RequestPayload, context: { peerId: string; userId: string }) => {
         console.debug('[Room] request received from:', context.peerId, 'account:', data.accountName);
-        await this.handleRequest(data, context.peerId);
+        await this.zone.run(() => this.handleRequest(data, context.peerId));
       });
 
-      const provideAction = room.makeAction('provide') as unknown as MessageAction<ProvidePayload>;
-      this.provideAction.set(provideAction);
-
-      provideAction.onMessage(async (data: ProvidePayload, context: { peerId: string; userId: string }) => {
+      this.provideAction.init(room.makeAction('provide'));
+      this.provideAction.onMessage(async (data: ProvidePayload, context: { peerId: string; userId: string }) => {
         console.debug('[Room] provide received from:', context.peerId, 'posts:', data.posts.length);
-        await this.handleProvide(data);
+        await this.zone.run(() => this.handleProvide(data));
       });
 
       room.onPeerJoin((context: PeerJoinContext) => {
@@ -125,8 +122,7 @@ export class RoomService {
         });
         console.debug('[Room] peer joined:', context.peerId, 'userId:', context.userId);
         this.announceIfSignedIn(context.peerId);
-        // Request posts from the new peer
-        this.requestPosts(this.currentAccount()!);
+        this.requestPosts(accountName);
       });
 
       room.onPeerLeave((context: PeerLeaveContext) => {
@@ -137,9 +133,8 @@ export class RoomService {
       await room.ready;
 
       this.announceIfSignedIn();
-
-      // Request posts from peers after joining
       await this.requestPosts(accountName);
+      this.startPolling(accountName);
 
     } catch (error) {
       console.error('Failed to join room:', error);
@@ -147,41 +142,53 @@ export class RoomService {
     }
   }
 
-  private async requestPosts(accountName: string): Promise<void> {
-    const requestAction = this.requestAction();
-    if (!requestAction) return;
-
+  private async requestPosts(accountName: string, options?: { before?: string; after?: string }): Promise<void> {
     const payload: RequestPayload = {
       accountName,
       requesterId: this.selfId() ?? '',
+      before: options?.before,
+      after: options?.after,
     };
 
-    requestAction.send(payload);
-    console.debug('[Room] Requested posts for:', accountName);
+    this.requestAction.send(payload);
+    console.debug('[Room] Requested posts for:', accountName, 'before:', options?.before, 'after:', options?.after);
   }
 
   private async handleRequest(data: RequestPayload, peerId: string): Promise<void> {
     const accountName = this.currentAccount();
     if (!accountName || accountName !== data.accountName) return;
 
-    // Get all posts for this account
-    const posts = await this.postService.getAllPosts(accountName);
+    let posts = await this.postService.getAllPosts(accountName);
+
+    if (data.before) {
+      const beforeIndex = posts.findIndex(p => p.uuid === data.before);
+      if (beforeIndex >= 0) {
+        posts = posts.slice(0, beforeIndex);
+      }
+    }
+
+    if (data.after) {
+      const afterIndex = posts.findIndex(p => p.uuid === data.after);
+      if (afterIndex >= 0) {
+        posts = posts.slice(afterIndex + 1);
+      }
+    }
+
     if (posts.length === 0) {
-      console.debug('[Room] No posts to provide for:', accountName);
+      console.debug('[Room] No posts to provide for:', accountName, 'before:', data.before, 'after:', data.after);
       return;
     }
 
-    const provideAction = this.provideAction();
-    if (!provideAction) return;
+    const provide = this.provideAction;
+    if (!provide) return;
 
     const payload: ProvidePayload = {
       accountName,
       posts,
     };
 
-    // Send directly to the requester
-    provideAction.send(payload, { target: peerId });
-    console.debug('[Room] Provided', posts.length, 'posts to:', peerId);
+    await provide.send(payload, { target: peerId });
+    console.debug('[Room] Provided', posts.length, 'posts to:', peerId, 'before:', data.before, 'after:', data.after);
   }
 
   private async handleProvide(data: ProvidePayload): Promise<void> {
@@ -192,51 +199,83 @@ export class RoomService {
     for (const post of data.posts) {
       await this.handleIncomingPost(post);
     }
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('piu-piu:load-posts', { detail: { accountName } }));
+    }
   }
 
   private async handleIncomingPost(post: PostData): Promise<void> {
     const accountName = this.currentAccount();
     if (!accountName) return;
 
-    // Get the sender's public key from the post itself
     const publicKey = post.publicKey;
     if (!publicKey || publicKey.length === 0) {
       console.warn('[Room] No public key in post from:', post.senderAccount);
       return;
     }
 
-    // Verify the post signature (same as account page)
     const isValid = await this.postService.verifyPost(post);
     if (!isValid) {
       console.warn('[Room] Invalid post signature from:', post.senderAccount);
       return;
     }
 
-    // Check if post already exists
     const existing = await this.postService.getPost(accountName, post.uuid);
     if (existing) {
       console.debug('[Room] Post already exists:', post.uuid);
       return;
     }
 
-    // Store the verified post
     const db = await this.postService.getDB(accountName);
     await db.put('posts', JSON.stringify(post), post.uuid);
     console.debug('[Room] Stored verified post from:', post.senderAccount);
-    // Dispatch custom event for UI refresh
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('piu-piu:load-posts', { detail: { accountName } }));
     }
   }
 
-  async broadcastPost(post: PostData): Promise<void> {
-    const postAction = this.postAction();
-    if (!postAction) {
-      console.warn('[Room] No post action available');
-      return;
-    }
+  private async startPolling(accountName: string): Promise<void> {
+    this.stopPolling();
 
-    postAction.send(post);
+    const posts = await this.postService.getAllPosts(accountName);
+    const latestUuid = posts.length > 0 ? posts[0].uuid : undefined;
+    const oldestUuid = posts.length > 0 ? posts[posts.length - 1].uuid : undefined;
+
+    // Poll for newer posts (after latest) every 10 seconds
+    const afterInterval = setInterval(async () => {
+      const currentPosts = await this.postService.getAllPosts(accountName);
+      const latest = currentPosts.length > 0 ? currentPosts[0].uuid : undefined;
+      if (latest) {
+        this.requestPosts(accountName, { after: latest });
+      }
+    }, 10000);
+    this.pollingIntervals.push(afterInterval);
+
+    // Poll for older posts (before oldest) every 30 seconds
+    const beforeInterval = setInterval(async () => {
+      const currentPosts = await this.postService.getAllPosts(accountName);
+      const oldest = currentPosts.length > 0 ? currentPosts[currentPosts.length - 1].uuid : undefined;
+      if (oldest) {
+        this.requestPosts(accountName, { before: oldest });
+      }
+    }, 30000);
+    this.pollingIntervals.push(beforeInterval);
+
+    // Initial request for older posts if we have any
+    if (oldestUuid) {
+      this.requestPosts(accountName, { before: oldestUuid });
+    }
+  }
+
+  private stopPolling(): void {
+    for (const interval of this.pollingIntervals) {
+      clearInterval(interval);
+    }
+    this.pollingIntervals = [];
+  }
+
+  async broadcastPost(post: PostData): Promise<void> {
+    this.postAction.send(post);
     console.debug('[Room] Broadcasted post:', post.uuid);
   }
 
@@ -246,22 +285,22 @@ export class RoomService {
 
     try {
       const signer = JSON.parse(stored) as SignerInfo;
-      const whoamiAction = this.whoamiAction();
-      if (!whoamiAction) return;
-
-      whoamiAction.send(signer, peerId ? {target: peerId} : undefined);
+      this.whoamiAction.send(signer, peerId ? { target: peerId } : undefined);
     } catch {
       // Not signed in, don't announce
     }
   }
 
   leaveRoom(): void {
+    this.stopPolling();
     const room = this.roomInstance();
     if (room) {
       room.leave();
       this.roomInstance.set(null);
-      this.whoamiAction.set(null);
-      this.postAction.set(null);
+      this.whoamiAction = createWhoamiAction();
+      this.postAction = createPostAction();
+      this.requestAction = createRequestAction();
+      this.provideAction = createProvideAction();
     }
     this.isConnected.set(false);
     this.peers.set([]);
