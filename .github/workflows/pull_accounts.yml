@@ -8,6 +8,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: pull-accounts
+  cancel-in-progress: true
+
 jobs:
   pull-accounts:
     runs-on: ubuntu-latest
