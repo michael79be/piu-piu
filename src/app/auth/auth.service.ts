@@ -1,7 +1,8 @@
 import { Injectable, signal, computed, inject } from '@angular/core';
 import { ProfileService, ProfileData } from '../profile/profile.service';
 import { ErrorService } from '../error/error.service';
-import { CryptoService, WebAuthnSignResult } from '../crypto/crypto.service';
+import { CryptoService } from '../crypto/crypto.service';
+import { RoomService } from '../room/room.service';
 import { SESSION_KEY } from '../auth/auth.enum';
 
 export interface SignerInfo extends ProfileData {
@@ -17,6 +18,7 @@ export class AuthService {
   private profileService = inject(ProfileService);
   private errorService = inject(ErrorService);
   private cryptoService = inject(CryptoService);
+  private roomService = inject(RoomService);
 
   isSignedIn = signal<boolean>(false);
   storedSigner = signal<SignerInfo | null>(null);
@@ -41,6 +43,8 @@ export class AuthService {
         this.storedSigner.set(signer);
         this.isSignedIn.set(true);
         this.displayName.set(signer.username);
+        // Rejoin global room on session restore
+        this.roomService.joinGlobalRoom().catch(err => console.error('Failed to join global room:', err));
       } catch {
         this.clearSession();
       }
@@ -83,6 +87,10 @@ export class AuthService {
       this.isSignedIn.set(true);
       this.displayName.set(signerInfo.username);
       this.errorService.showSuccess('Signed in successfully');
+      
+      // Join global room for user discovery
+      this.roomService.joinGlobalRoom().catch(err => console.error('Failed to join global room:', err));
+      
       return true;
     } else {
       this.errorService.showError('Checking signature failed');
@@ -91,6 +99,7 @@ export class AuthService {
   }
 
   signOut(): void {
+    this.roomService.leaveGlobalRoom();
     sessionStorage.removeItem(SESSION_KEY);
     this.isSignedIn.set(false);
     this.storedSigner.set(null);
