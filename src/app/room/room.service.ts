@@ -37,6 +37,8 @@ export interface ProvidePayload {
   posts: PostData[];
 }
 
+const GLOBAL_ROOM_NAME = 'piu-piu';
+
 @Injectable({ providedIn: 'root' })
 export class RoomService {
   private toastService = inject(TuiToastService);
@@ -44,17 +46,21 @@ export class RoomService {
   private zone = inject(NgZone);
 
   private roomInstance = signal<Room | null>(null);
-  private whoamiAction: WhoamiAction = createWhoamiAction();
+  private globalRoomInstance = signal<Room | null>(null);
+  private globalWhoamiAction: WhoamiAction = createWhoamiAction();
   private postAction: PostAction = createPostAction();
   private requestAction: RequestAction = createRequestAction();
   private provideAction: ProvideAction = createProvideAction();
 
   peers = signal<Peer[]>([]);
+  globalPeers = signal<Peer[]>([]);
   currentAccount = signal<string | null>(null);
   isConnected = signal(false);
+  isGlobalConnected = signal(false);
   selfId = signal<string | null>(null);
 
   readonly peerCount = computed(() => this.peers().length);
+  readonly globalPeerCount = computed(() => this.globalPeers().length);
 
   private pollingIntervals: ReturnType<typeof setInterval>[] = [];
 
@@ -78,17 +84,6 @@ export class RoomService {
       const selfInfo = await room.getSelf();
       this.selfId.set(selfInfo.userId);
       console.debug('[Room] joined room:', accountName, 'selfId:', selfInfo.userId);
-
-      this.whoamiAction.init(room.makeAction('whoami'));
-      this.whoamiAction.onMessage((data: SignerInfo, context: { peerId: string; userId: string }) => {
-        console.debug('[Room] whoami received from:', context.peerId, 'signer:', data.username);
-        const peer = this.peers().find(p => p.id === context.peerId);
-        if (peer) {
-          this.peers.update(current =>
-            current.map(p => p.id === context.peerId ? { ...p, signerInfo: data } : p)
-          );
-        }
-      });
 
       this.postAction.init(room.makeAction('post'));
       this.postAction.onMessage(async (data: PostData, context: { peerId: string; userId: string }) => {
@@ -121,7 +116,6 @@ export class RoomService {
           return [...current, peer];
         });
         console.debug('[Room] peer joined:', context.peerId, 'userId:', context.userId);
-        this.announceIfSignedIn(context.peerId);
         this.requestPosts(accountName);
       });
 
@@ -132,7 +126,6 @@ export class RoomService {
 
       await room.ready;
 
-      this.announceIfSignedIn();
       await this.requestPosts(accountName);
       this.startPolling(accountName);
 
@@ -140,6 +133,85 @@ export class RoomService {
       console.error('Failed to join room:', error);
       this.toastService.open('Failed to join room', { appearance: 'negative', autoClose: 5000 }).subscribe();
     }
+  }
+
+  async joinGlobalRoom(): Promise<void> {
+    if (this.globalRoomInstance()) {
+      return;
+    }
+
+    try {
+      const { joinRoom } = await import('trystero');
+      const room = joinRoom(
+        { appId: 'piu-piu' },
+        GLOBAL_ROOM_NAME
+      );
+
+      this.globalRoomInstance.set(room);
+      this.isGlobalConnected.set(true);
+      this.globalPeers.set([]);
+
+      const selfInfo = await room.getSelf();
+      console.debug('[Room] joined global room:', GLOBAL_ROOM_NAME, 'selfId:', selfInfo.userId);
+
+      this.globalWhoamiAction.init(room.makeAction('whoami'));
+      this.globalWhoamiAction.onMessage((data: SignerInfo, context: { peerId: string; userId: string }) => {
+        console.debug('[Room] global whoami received from:', context.peerId, 'signer:', data.username);
+        const peer = this.globalPeers().find(p => p.id === context.peerId);
+        if (peer) {
+          this.globalPeers.update(current =>
+            current.map(p => p.id === context.peerId ? { ...p, signerInfo: data } : p)
+          );
+        } else {
+          const newPeer: Peer = {
+            id: context.peerId,
+            name: data.username,
+            joinedAt: Date.now(),
+            signerInfo: data,
+          };
+          this.globalPeers.update(current => [...current, newPeer]);
+        }
+      });
+
+      room.onPeerJoin((context: PeerJoinContext) => {
+        const users = room.getUsers();
+        const userInfo = users[context.userId];
+        const peer: Peer = {
+          id: context.peerId,
+          name: userInfo?.peerIds?.[0] ?? context.userId,
+          joinedAt: Date.now(),
+        };
+        this.globalPeers.update(current => {
+          if (current.find(p => p.id === peer.id)) return current;
+          return [...current, peer];
+        });
+        console.debug('[Room] global peer joined:', context.peerId, 'userId:', context.userId);
+        this.announceGlobalIfSignedIn(context.peerId);
+      });
+
+      room.onPeerLeave((context: PeerLeaveContext) => {
+        this.globalPeers.update(current => current.filter(p => p.id !== context.peerId));
+        console.debug('[Room] global peer left:', context.peerId, 'userId:', context.userId);
+      });
+
+      await room.ready;
+
+      this.announceGlobalIfSignedIn();
+
+    } catch (error) {
+      console.error('Failed to join global room:', error);
+    }
+  }
+
+  leaveGlobalRoom(): void {
+    const room = this.globalRoomInstance();
+    if (room) {
+      room.leave();
+      this.globalRoomInstance.set(null);
+      this.globalWhoamiAction = createWhoamiAction();
+    }
+    this.isGlobalConnected.set(false);
+    this.globalPeers.set([]);
   }
 
   private async requestPosts(accountName: string, options?: { before?: string; after?: string }): Promise<void> {
@@ -279,13 +351,13 @@ export class RoomService {
     console.debug('[Room] Broadcasted post:', post.uuid);
   }
 
-  private announceIfSignedIn(peerId?: string): void {
+  private announceGlobalIfSignedIn(peerId?: string): void {
     const stored = sessionStorage.getItem(SESSION_KEY);
     if (!stored) return;
 
     try {
       const signer = JSON.parse(stored) as SignerInfo;
-      this.whoamiAction.send(signer, peerId ? { target: peerId } : undefined);
+      this.globalWhoamiAction.send(signer, peerId ? { target: peerId } : undefined);
     } catch {
       // Not signed in, don't announce
     }
@@ -297,7 +369,6 @@ export class RoomService {
     if (room) {
       room.leave();
       this.roomInstance.set(null);
-      this.whoamiAction = createWhoamiAction();
       this.postAction = createPostAction();
       this.requestAction = createRequestAction();
       this.provideAction = createProvideAction();
@@ -306,5 +377,10 @@ export class RoomService {
     this.peers.set([]);
     this.currentAccount.set(null);
     this.selfId.set(null);
+  }
+
+  logout(): void {
+    this.leaveRoom();
+    this.leaveGlobalRoom();
   }
 }
