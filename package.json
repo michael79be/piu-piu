@@ -2,12 +2,12 @@
   "name": "piu-piu",
   "version": "0.0.0",
   "scripts": {
-    "ng": "ng",
-    "prestart": "node certs.mjs",
-    "start": "ng serve",
-    "build": "ng build",
-    "watch": "ng build --watch --configuration development",
-    "test": "ng test"
+    "ng": "npx ng",
+    "start": "npx ng serve",
+    "prebuild": "node scripts/generate-icons.mjs",
+    "build": "npx ng build",
+    "watch": "npx ng build --watch --configuration development",
+    "test": "npx ng test"
   },
   "private": true,
   "packageManager": "npm@10.9.9",
@@ -25,7 +25,6 @@
     "@tailwindcss/postcss": "^4.3.5",
     "angular-line-awesome": "^22.0.0",
     "idb": "^8.0.4",
-    "office-addin-dev-certs": "^3.0.1",
     "postcss": "^8.5.33",
     "rxjs": "~7.8.0",
     "tailwindcss": "^4.3.5",
@@ -38,6 +37,7 @@
     "@angular/compiler-cli": "^22.2.0",
     "jsdom": "^30.0.0",
     "prettier": "^3.8.1",
+    "sharp": "^0.35.5",
     "typescript": "~6.0.2",
     "vitest": "^5.0.0",
     "werift": "^0.28.0"

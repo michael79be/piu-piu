@@ -81,10 +81,7 @@
               "buildTarget": "piu-piu:build:production"
             },
             "development": {
-              "buildTarget": "piu-piu:build:development",
-              "ssl": true,
-              "sslKey": "ssl/localhost.key",
-              "sslCert": "ssl/localhost.crt"
+              "buildTarget": "piu-piu:build:development"
             }
           },
           "defaultConfiguration": "development"
