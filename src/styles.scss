@@ -1,1 +1,13 @@
 @use 'tailwindcss';
+
+:root {
+  --tui-primary: #448196;
+  --tui-primary-hover: #3a7082;
+  --tui-primary-active: #305e6e;
+  --tui-primary-focus: #5a9ab8;
+  --tui-primary-contrast: #ffffff;
+  --tui-background-accent-1: var(--tui-primary);
+  --tui-background-accent-1-hover: var(--tui-primary-hover);
+  --tui-text-action: var(--tui-primary);
+  --tui-text-action-hover: var(--tui-primary-hover);
+}

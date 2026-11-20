@@ -1,27 +1,30 @@
 <div class="flex flex-col h-screen bg-white text-black">
   <div class="flex-1 flex overflow-hidden">
-    <div class="menu w-[200px] border-r border-gray-200 bg-white flex flex-col overflow-y-auto p-2">
+    <div class="menu w-[200px] max-sm:w-[80px] border-r border-gray-200 bg-white flex flex-col overflow-y-auto p-2">
       <div class="ps-2 mb-3">
         <img src="apple-touch-icon.png" alt="Piu-Piu" class="w-12 h-12 rounded-full bg-white p-1" />
       </div>
       <nav class="flex-1">
-        <button tuiButton appearance="flat" size="m" class="w-full justify-start px-3 py-2 mb-2" (click)="onHome()">
+        <button tuiButton appearance="flat" size="m" class="w-full justify-start px-3 py-2 mb-2" (click)="onHome()"
+        tuiHintDirection="end" tuiHint="Home">
           <la-icon icon="home" size="2x"></la-icon>
-          <span>Home</span>
+          <span class="max-sm:hidden">Home</span>
         </button>
         @if (canPost()) {
-          <button tuiButton appearance="flat" size="m" class="w-full justify-start px-3 py-2 mb-2" (click)="openPostDialog()">
+          <button tuiButton appearance="flat" size="m" class="w-full justify-start px-3 py-2 mb-2" (click)="openPostDialog()"
+          tuiHintDirection="end" tuiHint="Post">
             <la-icon [icon]="['lar', 'edit']" size="2x"></la-icon>
-            <span>Post</span>
+            <span class="max-sm:hidden">Post</span>
           </button>
         }
       </nav>
 
       <div tuiDropdown #dropdown="tuiDropdown" [tuiDropdownOpen]="showAccountMenu()">
       <div [tuiDropdown]="content">
-        <button tuiButton appearance="flat" tuiDropdownAuto tuiDropdownRole="menu" type="button" [tuiDropdown]="content" class="w-full justify-start px-3 py-2 mb-2">
-          <la-icon [icon]="['lar', 'user']" size="2x"></la-icon>
-          <span>@{{ displayName() }}</span>
+        <button tuiButton appearance="flat" tuiDropdownAuto tuiDropdownRole="menu" type="button" [tuiDropdown]="content" class="w-full justify-start"
+        tuiHintDirection="end" tuiHint="@{{ displayName() }}">
+          <la-icon [icon]="['lar', 'user']" size="2x" class="max-sm:ms-[-0.25em]"></la-icon>
+          <span class="max-sm:hidden">@{{ displayName() }}</span>
         </button>
       </div>
 

@@ -2,7 +2,7 @@ import { Component, computed, inject, OnInit, signal, OnDestroy } from '@angular
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router } from '@angular/router';
-import { TuiButton, TuiDropdown, TuiDataList, TuiTextfield, TuiDialogService } from '@taiga-ui/core';
+import { TuiButton, TuiDropdown, TuiDataList, TuiTextfield, TuiDialogService, TuiHint } from '@taiga-ui/core';
 import { PolymorpheusComponent } from '@taiga-ui/polymorpheus';
 import { LaIconComponent, LaIconLibrary } from 'angular-line-awesome';
 import { lasArrowLeft, lasEllipsisH, lasHome, larEdit, larUser, lasUsers, lasComment, lasPaperPlane, lasShieldAlt, lasUserSecret, lasUser, lasClock } from 'angular-line-awesome/icons';
@@ -21,7 +21,7 @@ type MenuItem = {
 @Component({
   selector: 'app-account',
   standalone: true,
-  imports: [CommonModule, FormsModule, TuiButton, TuiDropdown, TuiDataList, TuiTextfield, LaIconComponent],
+  imports: [CommonModule, FormsModule, TuiButton, TuiHint, TuiDropdown, TuiDataList, TuiTextfield, LaIconComponent],
   templateUrl: './account.html',
   styleUrl: './account.scss'
 })
