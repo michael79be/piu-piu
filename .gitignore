@@ -44,3 +44,4 @@ __screenshots__/
 /provider/
 accounts/test.json
 private.pem
+vapid-private.key

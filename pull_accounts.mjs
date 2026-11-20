@@ -9,9 +9,10 @@ const CONNECT_TIMEOUT = 30000; // 30 seconds to connect
 
 // Parse command line arguments
 // Usage: node pull_accounts.mjs [outputPath] [collectionTimeMs]
-// Default: outputPath = 'accounts/public.json', collectionTimeMs = 10000 (10 seconds)
+// Default: outputPath = 'accounts/test.json', collectionTimeMs = 10000 (10 seconds)
+// CI:    outputPath = 'accounts/public.json', collectionTimeMs = 60000 (60 seconds)
 const args = process.argv.slice(2);
-const OUTPUT_PATH = resolve(args[0] || 'accounts/public.json');
+const OUTPUT_PATH = resolve(args[0] || 'accounts/test.json');
 const COLLECTION_TIME = parseInt(args[1] || '10000', 10);
 
 /**

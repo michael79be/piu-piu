@@ -115,13 +115,38 @@ export class CryptoService {
 
       const cryptoKey = await this.importRsaPublicKey(publicKeyPem);
 
-      const encrypted = await window.crypto.subtle.encrypt(
-        { name: 'RSA-OAEP' },
-        cryptoKey,
+      // Generate a random AES-GCM key for the data
+      const aesKey = await window.crypto.subtle.generateKey(
+        { name: 'AES-GCM', length: 256 },
+        true,
+        ['encrypt', 'decrypt']
+      );
+
+      // Encrypt data with AES-GCM
+      const iv = window.crypto.getRandomValues(new Uint8Array(12));
+      const encryptedData = await window.crypto.subtle.encrypt(
+        { name: 'AES-GCM', iv },
+        aesKey,
         dataBytes
       );
 
-      return this.bytesToBase64(new Uint8Array(encrypted));
+      // Export AES key and encrypt it with RSA-OAEP
+      const exportedAesKey = await window.crypto.subtle.exportKey('raw', aesKey);
+      const encryptedAesKey = await window.crypto.subtle.encrypt(
+        { name: 'RSA-OAEP' },
+        cryptoKey,
+        exportedAesKey
+      );
+
+      // Combine: encryptedAesKey (256 bytes for 2048-bit) + iv (12 bytes) + encryptedData
+      const encryptedAesKeyBytes = new Uint8Array(encryptedAesKey);
+      const encryptedDataBytes = new Uint8Array(encryptedData);
+      const combined = new Uint8Array(encryptedAesKeyBytes.length + iv.length + encryptedDataBytes.length);
+      combined.set(encryptedAesKeyBytes, 0);
+      combined.set(iv, encryptedAesKeyBytes.length);
+      combined.set(encryptedDataBytes, encryptedAesKeyBytes.length + iv.length);
+
+      return this.bytesToBase64(combined);
     } catch (e) {
       console.error('RSA encryption failed:', e);
       return null;
@@ -219,5 +244,64 @@ export class CryptoService {
     const result = new Uint8Array(length);
     result.set(data.slice(0, length));
     return result;
+  }
+
+  async rsaDecrypt(encryptedData: string, privateKeyPem: string): Promise<string | null> {
+    try {
+      const combined = this.base64ToBytes(encryptedData);
+
+      // Import private key
+      const pemContents = privateKeyPem
+        .replace('-----BEGIN PRIVATE KEY-----', '')
+        .replace('-----END PRIVATE KEY-----', '')
+        .replace(/\s/g, '');
+      const binary = atob(pemContents);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) {
+        bytes[i] = binary.charCodeAt(i);
+      }
+
+      const privateKey = await window.crypto.subtle.importKey(
+        'pkcs8',
+        bytes as BufferSource,
+        { name: 'RSA-OAEP', hash: 'SHA-256' },
+        false,
+        ['decrypt']
+      );
+
+      // Extract components: encryptedAesKey (256 bytes) + iv (12 bytes) + encryptedData
+      const encryptedAesKey = combined.slice(0, 256);
+      const iv = combined.slice(256, 268);
+      const data = combined.slice(268);
+
+      // Decrypt AES key with RSA-OAEP
+      const decryptedAesKey = await window.crypto.subtle.decrypt(
+        { name: 'RSA-OAEP' },
+        privateKey,
+        encryptedAesKey
+      );
+
+      // Import AES key
+      const aesKey = await window.crypto.subtle.importKey(
+        'raw',
+        decryptedAesKey,
+        { name: 'AES-GCM' },
+        false,
+        ['decrypt']
+      );
+
+      // Decrypt data with AES-GCM
+      const decryptedData = await window.crypto.subtle.decrypt(
+        { name: 'AES-GCM', iv },
+        aesKey,
+        data
+      );
+
+      const decoder = new TextDecoder();
+      return decoder.decode(decryptedData);
+    } catch (e) {
+      console.error('RSA decryption failed:', e);
+      return null;
+    }
   }
 }

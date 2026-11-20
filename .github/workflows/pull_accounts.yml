@@ -1,9 +1,9 @@
 name: Pull Accounts
 
 on:
-  schedule:
-    - cron: '*/5 * * * *'
   workflow_dispatch:
+  repository_dispatch:
+    types: [pull-accounts]
 
 permissions:
   contents: write

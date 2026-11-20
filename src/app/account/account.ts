@@ -5,13 +5,16 @@ import { ActivatedRoute, Router } from '@angular/router';
 import { TuiButton, TuiDropdown, TuiDataList, TuiTextfield, TuiDialogService, TuiHint } from '@taiga-ui/core';
 import { PolymorpheusComponent } from '@taiga-ui/polymorpheus';
 import { LaIconComponent, LaIconLibrary } from 'angular-line-awesome';
-import { lasArrowLeft, lasEllipsisH, lasHome, larEdit, larUser, lasUsers, lasComment, lasPaperPlane, lasShieldAlt, lasUserSecret, lasUser, lasClock } from 'angular-line-awesome/icons';
+import { lasArrowLeft, lasEllipsisH, lasHome, larEdit, larUser, lasUsers, lasComment, lasPaperPlane, lasShieldAlt, lasUserSecret, lasUser, lasClock, lasBell, lasBellSlash } from 'angular-line-awesome/icons';
 import { ProfileData } from '../profile/profile.service';
 import { ErrorService } from '../error/error.service';
 import { RoomService } from '../room/room.service';
 import { AuthService } from '../auth/auth.service';
 import { PostService, PostData } from '../post/post.service';
 import { PostDialogComponent } from '../post/post-dialog/post-dialog.component';
+import { CryptoService } from '../crypto/crypto.service';
+import { RsaPublicKeyService } from '../crypto/rsa-public-key.service';
+import { VapidPublicKeyService } from '../crypto/vapid-public-key.service';
 
 type MenuItem = {
   label: string;
@@ -33,6 +36,9 @@ export class Account implements OnInit, OnDestroy {
   private authService = inject(AuthService);
   private postService = inject(PostService);
   private dialogService = inject(TuiDialogService);
+  private cryptoService = inject(CryptoService);
+  private rsaPublicKeyService = inject(RsaPublicKeyService);
+  private vapidPublicKeyService = inject(VapidPublicKeyService);
   private library = inject(LaIconLibrary);
 
   profileData = signal<ProfileData | null>(null);
@@ -48,6 +54,10 @@ export class Account implements OnInit, OnDestroy {
   storedSigner = this.authService.storedSigner;
   displayName = this.authService.displayName;
 
+  pushSubscription = signal<PushSubscription | null>(null);
+  pushSupported = signal(false);
+  pushLoading = signal(false);
+
   private handlePostsUpdated = (event: CustomEvent) => {
     const detail = event.detail;
     if (!detail?.accountName || detail.accountName === this.accountName()) {
@@ -56,7 +66,7 @@ export class Account implements OnInit, OnDestroy {
   };
 
   constructor() {
-    this.library.addIcons([lasArrowLeft, lasEllipsisH, lasHome, larEdit, larUser, lasUsers, lasComment, lasPaperPlane, lasShieldAlt, lasUserSecret, lasUser, lasClock]);
+    this.library.addIcons([lasArrowLeft, lasEllipsisH, lasHome, larEdit, larUser, lasUsers, lasComment, lasPaperPlane, lasShieldAlt, lasUserSecret, lasUser, lasClock, lasBell, lasBellSlash]);
   }
 
   ngOnInit(): void {
@@ -84,6 +94,12 @@ export class Account implements OnInit, OnDestroy {
 
     // Listen for P2P post events
     window.addEventListener('piu-piu:load-posts', this.handlePostsUpdated as EventListener);
+
+    // Check push notification support
+    this.pushSupported.set('serviceWorker' in navigator && 'PushManager' in window);
+    if (this.pushSupported()) {
+      this.loadPushSubscription();
+    }
   }
 
   ngOnDestroy(): void {
@@ -102,10 +118,19 @@ export class Account implements OnInit, OnDestroy {
 
   accountMenu = computed<MenuItem[]>(() => {
     if (this.isSignedIn()) {
-      return [
+      const items: MenuItem[] = [
         { label: 'Profile', command: () => { } },
-        { label: 'Sign out', command: () => this.signOut() }
       ];
+
+      if (this.pushSupported()) {
+        items.push({
+          label: this.pushSubscription() ? 'Disable Push Notifications' : 'Enable Push Notifications',
+          command: () => this.togglePushNotifications()
+        });
+      }
+
+      items.push({ label: 'Sign out', command: () => this.signOut() });
+      return items;
     } else {
       return [
         { label: 'Sign in', command: () => this.signIn() },
@@ -174,6 +199,89 @@ export class Account implements OnInit, OnDestroy {
     this.authService.signOut();
     this.roomService.leaveRoom();
     this.roomService.leaveGlobalRoom();
+  }
+
+  private loadPushSubscription(): void {
+    const accountName = this.accountName();
+    if (!accountName) return;
+
+    const stored = localStorage.getItem(`${accountName}-subscription`);
+    if (stored) {
+      try {
+        const subscriptionData = JSON.parse(stored);
+        this.pushSubscription.set(subscriptionData);
+      } catch {
+        // Invalid stored data
+      }
+    }
+  }
+
+  async togglePushNotifications(): Promise<void> {
+    if (!this.pushSupported()) {
+      this.errorService.showError('Push notifications not supported');
+      return;
+    }
+
+    const accountName = this.accountName();
+    if (!accountName) return;
+
+    this.pushLoading.set(true);
+
+    try {
+      if (this.pushSubscription()) {
+        // Unsubscribe
+        const registration = await navigator.serviceWorker.ready;
+        const subscription = await registration.pushManager.getSubscription();
+        if (subscription) {
+          await subscription.unsubscribe();
+        }
+        localStorage.removeItem(`${accountName}-subscription`);
+        this.pushSubscription.set(null);
+        this.errorService.showSuccess('Push notifications disabled');
+      } else {
+        // Subscribe
+        const registration = await navigator.serviceWorker.ready;
+        const vapidPublicKey = await this.vapidPublicKeyService.getPublicKey();
+        const applicationServerKey = this.urlBase64ToUint8Array(vapidPublicKey) as unknown as BufferSource;
+        const subscription = await registration.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey,
+        });
+
+        // Fetch RSA public key and encrypt subscription
+        const rsaPublicKey = await this.rsaPublicKeyService.getPublicKey();
+        const subscriptionJson = JSON.stringify(subscription);
+        const encrypted = await this.cryptoService.rsaEncrypt(subscriptionJson, rsaPublicKey);
+        if (!encrypted) {
+          throw new Error('Failed to encrypt subscription');
+        }
+
+        // Save encrypted subscription to localStorage
+        localStorage.setItem(`${accountName}-subscription`, encrypted);
+        this.pushSubscription.set(subscription);
+
+        // Update whoami in global room
+        this.roomService.updateWhoamiSubscription(encrypted);
+
+        this.errorService.showSuccess('Push notifications enabled');
+      }
+    } catch (error) {
+      console.error('Push toggle failed:', error);
+      this.errorService.showError('Failed to toggle push notifications');
+    } finally {
+      this.pushLoading.set(false);
+    }
+  }
+
+  private urlBase64ToUint8Array(base64String: string): Uint8Array {
+    const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+    const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+    const rawData = atob(base64);
+    const outputArray = new Uint8Array(rawData.length);
+    for (let i = 0; i < rawData.length; ++i) {
+      outputArray[i] = rawData.charCodeAt(i);
+    }
+    return outputArray;
   }
 
   formatTime(timestamp: number): string {
