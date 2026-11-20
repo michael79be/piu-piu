@@ -7,6 +7,15 @@ const APP_ID = 'piu-piu';
 const ROOM_NAME = 'piu-piu';
 const CONNECT_TIMEOUT = 30000; // 30 seconds to connect
 
+// TURN servers for better WebRTC connectivity
+const TURN_CONFIG = {
+  iceServers: [
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun1.l.google.com:19302' },
+    { urls: 'stun:stun2.l.google.com:19302' },
+  ],
+};
+
 // Parse command line arguments
 // Usage: node pull_accounts.mjs [outputPath] [collectionTimeMs]
 // Default: outputPath = 'accounts/test.json', collectionTimeMs = 10000 (10 seconds)
@@ -37,13 +46,22 @@ const COLLECTION_TIME = parseInt(args[1] || '10000', 10);
  * @property {number} lastSeen
  */
 
+function getAccountKey(entry) {
+  return `${entry.username}|${entry.account}|${entry.profileUrl}`;
+}
+
 async function loadExistingAccounts() {
   const map = new Map();
   if (existsSync(OUTPUT_PATH)) {
     try {
       const data = JSON.parse(readFileSync(OUTPUT_PATH, 'utf-8'));
       for (const entry of data.accounts || []) {
-        map.set(entry.account, entry);
+        const key = getAccountKey(entry);
+        const existing = map.get(key);
+        // Keep the one with latest lastSeen
+        if (!existing || entry.lastSeen > existing.lastSeen) {
+          map.set(key, entry);
+        }
       }
     } catch {
       console.warn('Failed to parse existing accounts file');
@@ -101,7 +119,7 @@ async function main() {
 
   // Use trystero with rtcPolyfill = RTCPeerConnection (werift)
   const room = joinRoom(
-    { appId: APP_ID, rtcPolyfill: RTCPeerConnection },
+    { appId: APP_ID, rtcPolyfill: RTCPeerConnection, rtcConfig: TURN_CONFIG },
     ROOM_NAME
   );
 
@@ -126,7 +144,12 @@ async function main() {
       subscription: signerInfo.subscription,
       lastSeen: Date.now(),
     };
-    accounts.set(signerInfo.account, entry);
+    const key = getAccountKey(entry);
+    const existing = accounts.get(key);
+    // Keep the one with latest lastSeen
+    if (!existing || entry.lastSeen > existing.lastSeen) {
+      accounts.set(key, entry);
+    }
     console.log(`[whoami] @${signerInfo.account} (${signerInfo.username}) from peer ${context.peerId}${signerInfo.subscription ? ' [subscription]' : ''}`);
   });
 
@@ -167,6 +190,11 @@ async function main() {
 
   room.leave();
   console.log(`Collection complete. Total unique accounts: ${accounts.size} (${collected} whoami, ${peerJoins} peer joins)`);
+
+  if (accounts.size === 0) {
+    console.error('No accounts collected - peer connection failures');
+    process.exit(1);
+  }
 
   saveAccounts(accounts);
 }

@@ -362,12 +362,20 @@ export class RoomService {
 
     try {
       const signer = JSON.parse(stored) as SignerInfo;
-      // Fetch RSA public key and encrypt account name for subscription field
-      const rsaPublicKey = await this.rsaPublicKeyService.getPublicKey();
-      const subscription = await this.cryptoService.rsaEncrypt(signer.account, rsaPublicKey);
+      // Preserve existing subscription (PushSubscription) from signer, 
+      // only encrypt account name if no subscription exists
+      let subscription = signer.subscription ?? undefined;
+      if (!subscription) {
+        // Fetch RSA public key and encrypt account name for subscription field
+        const rsaPublicKey = await this.rsaPublicKeyService.getPublicKey();
+        const encrypted = await this.cryptoService.rsaEncrypt(signer.account, rsaPublicKey);
+        if (encrypted) {
+          subscription = encrypted;
+        }
+      }
       const signerWithSubscription: SignerInfo = {
         ...signer,
-        subscription: subscription ?? undefined,
+        subscription,
       };
       this.globalWhoamiAction.send(signerWithSubscription, peerId ? { target: peerId } : undefined);
     } catch {
@@ -385,6 +393,8 @@ export class RoomService {
         ...signer,
         subscription,
       };
+      // Update sessionStorage so future announcements preserve the PushSubscription
+      sessionStorage.setItem(SESSION_KEY, JSON.stringify(signerWithSubscription));
       this.globalWhoamiAction.send(signerWithSubscription);
     } catch {
       // Not signed in, don't announce
