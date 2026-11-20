@@ -1,0 +1,33 @@
+name: Test Notification
+
+on:
+  workflow_dispatch:
+    inputs:
+      account:
+        description: 'Specific account username to test (optional, tests all if empty)'
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  test-notification:
+    runs-on: ubuntu-latest
+    env:
+      PRIVATE_KEY: ${{ secrets.PRIVATE_KEY }}
+      VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - run: npm ci
+
+      - name: Run test notification
+        run: node test_notification.mjs
