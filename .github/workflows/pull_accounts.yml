@@ -24,9 +24,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-          cache: 'npm'
 
-      - run: npm ci
+      - name: Install dependencies
+        run: npm install trystero werift --no-save
 
       - run: node pull_accounts.mjs accounts/public.json 60000
 

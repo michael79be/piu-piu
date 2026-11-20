@@ -1,7 +1,7 @@
 import { readFileSync, existsSync } from 'fs';
 import { resolve } from 'path';
-import webPush from 'web-push';
-import { createPrivateKey, createPublicKey } from 'crypto';
+import { sendNotification, setVapidDetails, generateVAPIDKeys } from 'web-push';
+import elliptic from 'elliptic';
 
 const PRIVATE_KEY_PEM = process.env.PRIVATE_KEY;
 const VAPID_PRIVATE_KEY = process.env.VAPID_PRIVATE_KEY;
@@ -22,20 +22,21 @@ if (!existsSync(ACCOUNTS_FILE)) {
   process.exit(1);
 }
 
-// Derive VAPID public key from private key (base64url encoded)
+// Derive VAPID public key from private key using elliptic
 function deriveVapidPublicKey(privateKeyBase64Url) {
   // Convert base64url to base64
   const base64 = privateKeyBase64Url.replace(/-/g, '+').replace(/_/g, '/');
   const padding = '='.repeat((4 - (base64.length % 4)) % 4);
-  const privateKeyBytes = Buffer.from(base64 + padding, 'base64');
+  const privateKeyHex = Buffer.from(base64 + padding, 'base64').toString('hex');
   
-  // Create private key object and derive public key
-  const privateKey = createPrivateKey({ key: privateKeyBytes, format: 'der', type: 'pkcs8' });
-  const publicKey = createPublicKey(privateKey);
-  const publicKeyDer = publicKey.export({ format: 'der', type: 'spki' });
+  const EC = elliptic.ec;
+  const ec = new EC('p256');
+  const keyPair = ec.keyFromPrivate(privateKeyHex, 'hex');
+  const publicKey = keyPair.getPublic('hex'); // uncompressed 04 + x + y (130 hex chars = 65 bytes)
   
   // Convert to base64url
-  return publicKeyDer.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+  const publicKeyBytes = Buffer.from(publicKey, 'hex');
+  return publicKeyBytes.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
 }
 
 function base64ToBytes(base64) {
@@ -72,13 +73,14 @@ async function rsaDecrypt(encryptedData, privateKey) {
 }
 
 async function sendTestNotification() {
-  const accounts = JSON.parse(readFileSync(ACCOUNTS_FILE, 'utf-8'));
+  const data = JSON.parse(readFileSync(ACCOUNTS_FILE, 'utf-8'));
+  const accounts = data.accounts || [];
   const privateKey = await importPrivateKey(PRIVATE_KEY_PEM);
 
   // Derive VAPID public key from private key
   const vapidPublicKey = deriveVapidPublicKey(VAPID_PRIVATE_KEY);
 
-  webPush.setVapidDetails(
+  setVapidDetails(
     'mailto:test@piu-piu.top',
     vapidPublicKey,
     VAPID_PRIVATE_KEY
@@ -110,7 +112,7 @@ async function sendTestNotification() {
         body: TEST_MESSAGE || `Test notification for @${account.username}`,
         data: { test: true, timestamp: Date.now() }
       });
-      await webPush.sendNotification(subscription, payload);
+      await sendNotification(subscription, payload);
       console.log(`Sent test notification to @${account.username}`);
       sent++;
     } catch (error) {
