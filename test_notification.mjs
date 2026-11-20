@@ -1,10 +1,13 @@
 import { readFileSync, existsSync } from 'fs';
 import { resolve } from 'path';
 import webPush from 'web-push';
+import { createPrivateKey, createPublicKey } from 'crypto';
 
 const PRIVATE_KEY_PEM = process.env.PRIVATE_KEY;
 const VAPID_PRIVATE_KEY = process.env.VAPID_PRIVATE_KEY;
 const ACCOUNTS_FILE = resolve(process.argv[2] || 'accounts/public.json');
+const TEST_MESSAGE = process.env.TEST_MESSAGE;
+const TEST_ACCOUNT = process.env.TEST_ACCOUNT;
 
 if (!PRIVATE_KEY_PEM) {
   console.error('PRIVATE_KEY environment variable not set');
@@ -17,6 +20,22 @@ if (!VAPID_PRIVATE_KEY) {
 if (!existsSync(ACCOUNTS_FILE)) {
   console.error(`Accounts file not found: ${ACCOUNTS_FILE}`);
   process.exit(1);
+}
+
+// Derive VAPID public key from private key (base64url encoded)
+function deriveVapidPublicKey(privateKeyBase64Url) {
+  // Convert base64url to base64
+  const base64 = privateKeyBase64Url.replace(/-/g, '+').replace(/_/g, '/');
+  const padding = '='.repeat((4 - (base64.length % 4)) % 4);
+  const privateKeyBytes = Buffer.from(base64 + padding, 'base64');
+  
+  // Create private key object and derive public key
+  const privateKey = createPrivateKey({ key: privateKeyBytes, format: 'der', type: 'pkcs8' });
+  const publicKey = createPublicKey(privateKey);
+  const publicKeyDer = publicKey.export({ format: 'der', type: 'spki' });
+  
+  // Convert to base64url
+  return publicKeyDer.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
 }
 
 function base64ToBytes(base64) {
@@ -56,18 +75,28 @@ async function sendTestNotification() {
   const accounts = JSON.parse(readFileSync(ACCOUNTS_FILE, 'utf-8'));
   const privateKey = await importPrivateKey(PRIVATE_KEY_PEM);
 
-  // web-push expects VAPID keys as base64url-encoded strings
-  // The VAPID_PRIVATE_KEY from secrets should be the base64url private key
+  // Derive VAPID public key from private key
+  const vapidPublicKey = deriveVapidPublicKey(VAPID_PRIVATE_KEY);
+
   webPush.setVapidDetails(
     'mailto:test@piu-piu.top',
-    VAPID_PRIVATE_KEY, // public key (base64url)
-    VAPID_PRIVATE_KEY  // private key (base64url) - web-push derives public from private
+    vapidPublicKey,
+    VAPID_PRIVATE_KEY
   );
 
   let sent = 0;
   let failed = 0;
 
-  for (const account of accounts) {
+  const filteredAccounts = TEST_ACCOUNT
+    ? accounts.filter(a => a.username === TEST_ACCOUNT)
+    : accounts;
+
+  if (filteredAccounts.length === 0 && TEST_ACCOUNT) {
+    console.log(`Account @${TEST_ACCOUNT} not found`);
+    process.exit(1);
+  }
+
+  for (const account of filteredAccounts) {
     if (!account.subscription) {
       console.log(`Skipping ${account.username} - no subscription`);
       continue;
@@ -78,7 +107,7 @@ async function sendTestNotification() {
       const subscription = JSON.parse(decrypted);
       const payload = JSON.stringify({
         title: 'Piu-Piu Test',
-        body: `Test notification for @${account.username}`,
+        body: TEST_MESSAGE || `Test notification for @${account.username}`,
         data: { test: true, timestamp: Date.now() }
       });
       await webPush.sendNotification(subscription, payload);

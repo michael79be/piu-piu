@@ -7,6 +7,10 @@ on:
         description: 'Specific account username to test (optional, tests all if empty)'
         required: false
         type: string
+      message:
+        description: 'Custom message for the notification (optional)'
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -31,3 +35,6 @@ jobs:
 
       - name: Run test notification
         run: node test_notification.mjs
+        env:
+          TEST_MESSAGE: ${{ github.event.inputs.message }}
+          TEST_ACCOUNT: ${{ github.event.inputs.account }}

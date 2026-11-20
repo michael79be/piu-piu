@@ -1,4 +1,4 @@
-import sharp from 'sharp';
+import Jimp from 'jimp';
 import { writeFileSync, mkdirSync, existsSync } from 'fs';
 import { resolve } from 'path';
 
@@ -20,14 +20,13 @@ async function generateIcons() {
     mkdirSync(OUTPUT_DIR, { recursive: true });
   }
 
+  const sourceImage = await Jimp.read(SOURCE_ICON);
   const icons = [];
 
   for (const size of SIZES) {
     const outputPath = resolve(OUTPUT_DIR, `icon-${size}x${size}.png`);
-    await sharp(SOURCE_ICON)
-      .resize(size, size, { fit: 'cover', position: 'center' })
-      .png({ compressionLevel: 9 })
-      .toFile(outputPath);
+    const resized = sourceImage.clone().resize(size, size);
+    await resized.writeAsync(outputPath);
     console.log(`Generated ${outputPath}`);
     icons.push({
       src: `icons/icon-${size}x${size}.png`,
@@ -38,10 +37,9 @@ async function generateIcons() {
   }
 
   // Also generate apple-touch-icon.png (180x180)
-  await sharp(SOURCE_ICON)
-    .resize(180, 180, { fit: 'cover', position: 'center' })
-    .png({ compressionLevel: 9 })
-    .toFile(resolve('public/apple-touch-icon.png'));
+  const appleTouchPath = resolve('public/apple-touch-icon.png');
+  const appleTouch = sourceImage.clone().resize(180, 180);
+  await appleTouch.writeAsync(appleTouchPath);
   console.log('Generated public/apple-touch-icon.png');
 
   // Generate manifest.webmanifest

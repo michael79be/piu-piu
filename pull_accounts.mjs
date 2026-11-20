@@ -59,12 +59,39 @@ function saveAccounts(accounts) {
   }
 
   const sorted = Array.from(accounts.values()).sort((a, b) => b.lastSeen - a.lastSeen);
-  const data = {
+  const newData = {
     updatedAt: Date.now(),
     count: sorted.length,
     accounts: sorted,
   };
-  writeFileSync(OUTPUT_PATH, JSON.stringify(data, null, 2));
+
+  // Check if accounts content changed (ignore updatedAt and lastSeen)
+  if (existsSync(OUTPUT_PATH)) {
+    try {
+      const oldData = JSON.parse(readFileSync(OUTPUT_PATH, 'utf-8'));
+      const oldAccounts = oldData.accounts || [];
+      const newAccounts = newData.accounts;
+
+      if (oldAccounts.length === newAccounts.length) {
+        const same = oldAccounts.every((acc, i) => {
+          const newAcc = newAccounts[i];
+          return acc.account === newAcc.account &&
+            acc.username === newAcc.username &&
+            acc.publicKey === newAcc.publicKey &&
+            acc.profileUrl === newAcc.profileUrl &&
+            acc.subscription === newAcc.subscription;
+        });
+        if (same) {
+          console.log('No changes to accounts data, skipping write');
+          return;
+        }
+      }
+    } catch {
+      // Failed to parse, will write new file
+    }
+  }
+
+  writeFileSync(OUTPUT_PATH, JSON.stringify(newData, null, 2));
   console.log(`Saved ${sorted.length} accounts to ${OUTPUT_PATH}`);
 }
 
