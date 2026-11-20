@@ -1,6 +1,6 @@
 # Piu-Piu
 
-Decentralized social network. Full client-side, no backend, hosted on piu-piu.top (custom domain). Account creation via URL shortener service (is.gd / v.gd / localhost provider). Auth via WebAuthn only. P2P data sync via trystero.
+Decentralized social network. Full client-side, no backend, hosted on piu-piu.top (custom domain). Account creation via URL shortener service (is.gd / v.gd / localhost provider). Auth via WebAuthn or Google OAuth2. P2P data sync via trystero. Web Push Notifications via VAPID.
 
 ## Stack
 
@@ -10,6 +10,8 @@ Decentralized social network. Full client-side, no backend, hosted on piu-piu.to
 - Local URL shortener provider (`provider.mjs`, `:3000`) for development
 - trystero for WebRTC-based P2P communication
 - idb for IndexedDB wrapper
+- werift for pure JS WebRTC in Node.js (pull_accounts.mjs)
+- sharp for PWA icon generation
 
 ## Rules
 
@@ -22,6 +24,7 @@ Decentralized social network. Full client-side, no backend, hosted on piu-piu.to
 - `npm start` - serve locally (copies dev SSL certs, then `ng serve`)
 - `npm run build` - production build (no base-href, for custom domain)
 - `npm test` - tests (vitest via `ng test`)
+- `node pull_accounts.mjs [outputPath] [collectionTimeMs]` - pull accounts from global room (default: accounts/test.json, 10s; CI: accounts/public.json, 60s)
 
 ## Architecture
 
@@ -39,6 +42,12 @@ Decentralized social network. Full client-side, no backend, hosted on piu-piu.to
 
 Local provider (`provider.mjs` / `provider/`) runs on `:3000` and persists to `provider/store.json`.
 
+### Config service (`src/app/config/config.service.ts`)
+
+- `ConfigService` - loads `config.json` at startup via `provideAppInitializer`
+- `AppConfig` interface: `rsaPublicKey`, `vapidPublicKey`
+- Used by `RsaPublicKeyService` and `VapidPublicKeyService`
+
 ### Profile service (`src/app/profile/profile.service.ts`)
 
 - `ProfileService` - manages profile data state using signals
@@ -50,30 +59,44 @@ Local provider (`provider.mjs` / `provider/`) runs on `:3000` and persists to `p
 
 ### Auth service (`src/app/auth/auth.service.ts`)
 
-- `AuthService` - manages WebAuthn authentication state using signals
+- `AuthService` - manages dual authentication state (WebAuthn + Google OAuth2) using signals
 - `isSignedIn` - signal for authentication state
 - `storedSigner` - signal containing signer info from sessionStorage
 - `displayName` - signal for display name
+- `authMethod` - signal: 'webauthn' | 'google'
 - `signerMatchesAccount` - computed checking if signer matches current route account
 - `signIn(accountName)` - performs WebAuthn credential.get with accountName as challenge
+- `signInWithGoogle()` - initiates Google OAuth2 with PKCE, opens popup
+- `completeGoogleSignIn(code, codeVerifier)` - exchanges code for tokens, creates ECDSA key pair
 - `signOut()` - clears sessionStorage and resets signals
 - `restoreSession()` - called in constructor, restores from sessionStorage
+
+### Google Auth services (`src/app/google-auth/`)
+
+- `GoogleAuthService` - OAuth2/OIDC with PKCE, token management, user info fetch, scope verification
+- `KeyStorageService` - ECDSA P-256 key pair generation, PBKDF2+AES-GCM encryption, Drive appdata storage
+- `GoogleCallbackComponent` - handles OAuth2 redirect at `/google-callback`
+- `GooglePasswordPromptComponent` - password prompt dialog with Drive access notice
 
 ### Room service (`src/app/room/room.service.ts`)
 
 - `RoomService` - manages trystero P2P room for data sync
 - `joinRoom(accountName)` - joins room named after account
-- Uses `MessageAction` for `whoami` and `post` broadcasts
+- Uses actions: `whoami` (global room), `post`, `request`, `provide`
 - Signed-in users announce themselves with signerInfo; guests participate but don't announce
 - `handleIncomingPost()` - verifies post signature using sender's publicKey, stores valid posts in IndexedDB
 - `broadcastPost(post)` - sends post to all peers in room
 - Dispatches `piu-piu:load-posts` custom event after storing incoming posts
+- Global room `"piu-piu"` for all users (whoami only), polling: 10s newer posts (`after` latest), 30s older posts (`before` oldest)
+- `joinGlobalRoom()` / `leaveGlobalRoom()` - manages global room connection
+- `announceGlobalIfSignedIn()` - broadcasts whoami with encrypted subscription field
+- `updateWhoamiSubscription()` - updates whoami with new push subscription
 - Logs join/leave/whoami/post events to console
 
 ### Post service (`src/app/post/post.service.ts`)
 
 - `PostService` - manages posts stored in IndexedDB via `idb`
-- `createPost(accountName, content)` - creates post with uuid, sender, timestamp, content, and WebAuthn signature
+- `createPost(accountName, content)` - creates post with uuid, sender, timestamp, content, and WebAuthn/Google signature
 - `getPost(uuid)` - retrieves single post by uuid
 - `getAllPosts(accountName)` - retrieves all posts sorted by timestamp descending
 - `getVerifiedPosts(accountName)` - retrieves and verifies posts using post's publicKey, filters invalid
@@ -92,7 +115,7 @@ Local provider (`provider.mjs` / `provider/`) runs on `:3000` and persists to `p
 - `clientData` - base64 encoded client data JSON
 
 **Signature flow:**
-- Signing: `createPost()` computes challenge as SHA-256 of `${uuid}:${senderAccount}:${timestamp}:${content}`, calls `navigator.credentials.get()` with challenge
+- Signing: `createPost()` computes challenge as SHA-256 of `${uuid}:${senderAccount}:${timestamp}:${content}`, calls `navigator.credentials.get()` (WebAuthn) or `signData()` (Google)
 - Verification: `verifyPost()` reconstructs signing string, hashes clientData, verifies signature with publicKey
 - All binary fields stored as base64 strings for reliable JSON transport
 
@@ -114,6 +137,19 @@ Local provider (`provider.mjs` / `provider/`) runs on `:3000` and persists to `p
 - `derToRawSignature(derSig)` - converts DER to raw r|s for ECDSA P-256
 - `padChallenge(challenge)` - ensures challenge is 32 bytes for Web Crypto
 - `bytesToBase64()`, `base64ToBytes()` - helpers for base64 encoding/decoding
+- `signData(data, publicKey)` - signs data with ECDSA key (for Google auth)
+- `verifySignature(data, signature, publicKey)` - verifies ECDSA signature
+- `importRsaPublicKey(pem)` - imports RSA public key from PEM
+- `rsaEncrypt(data, publicKeyPem)` - hybrid encryption: AES-GCM for data + RSA-OAEP for AES key
+- `rsaDecrypt(encryptedData, privateKeyPem)` - decrypts hybrid-encrypted data
+
+### RSA Public Key service (`src/app/crypto/rsa-public-key.service.ts`)
+
+- Loads RSA public key from `ConfigService` (via config.json)
+
+### VAPID Public Key service (`src/app/crypto/vapid-public-key.service.ts`)
+
+- Loads VAPID public key from `ConfigService` (via config.json)
 
 ### Routes (custom UrlMatcher for @ prefix)
 
@@ -121,6 +157,7 @@ Local provider (`provider.mjs` / `provider/`) runs on `:3000` and persists to `p
 - `/register` - Register page
 - `/@:accountName` - Account page with account name (defaults to is.gd)
 - `/@:accountName/:provider` - Account page with account name and provider suffix (v=v.gd, l=localhost)
+- `/google-callback` - Google OAuth2 redirect handler
 
 All routes use lazy-loaded components (`loadComponent`).
 
@@ -129,7 +166,10 @@ All routes use lazy-loaded components (`loadComponent`).
 - Project description with cloud background and apple-touch-icon.png
 - App icon displayed prominently at top
 - Sign in button - shows input for account name or URL + provider dropdown (hidden for URL input)
+- WebAuthn and Google Sign-In buttons
 - Register button - navigates to register page
+- Public data warning notice
+- Google Drive access notice (for encrypted key storage)
 
 ### Register screen (`src/app/register/`)
 
@@ -139,19 +179,23 @@ All routes use lazy-loaded components (`loadComponent`).
 4. The long URL is shortened via the chosen provider; a custom short code (`username_random`) is attempted first.
 5. On success, redirects to `/@accountName?signIn=true` or `/@accountName/provider?signIn=true` after 2 seconds.
 - App icon displayed at top of card
+- Public data warning notice
 
 ### Account screen (`src/app/account/`)
 
 - Light mode, X.com-inspired layout using Taiga UI components (`TuiButton`, `TuiDropdown`, `TuiDataList`) and `angular-line-awesome` (`la-icon` component with `las`/`lar` prefixes)
 - Left navigation: Home, Post (when signed in)
-- Top bar: User menu with sign in/out/register
+- Top bar: User menu with sign in/out/register, Google Sign-In, push notifications toggle
 - App icon + "Piu-Piu" title in sidebar header
 - Main content area displays profile with "Piu-Piu" title and posts feed
 - Uses `ProfileResolver` to load profile data from route params
-- On init: joins trystero room via `RoomService.joinRoom(accountName)`
+- On init: joins trystero room via `RoomService.joinRoom(accountName)` and global room via `RoomService.joinGlobalRoom()`
 - Loads posts from IndexedDB via `PostService.getVerifiedPosts()`
 - Listens for `piu-piu:load-posts` custom event to auto-refresh posts
 - Uses `AuthService` for authentication state
+- Auto-triggers WebAuthn sign-in when `?signIn=true` query param present
+- Shows password prompt dialog for Google auth completion
+- Push notifications: subscribe/unsubscribe via service worker, hybrid RSA encryption, updates whoami
 
 **Profile loading flow:**
 - `ProfileResolver` loads profile data from route params (`accountName` + optional `provider`)
@@ -161,12 +205,12 @@ All routes use lazy-loaded components (`loadComponent`).
 **Post flow:**
 - Post button opens `PostDialogComponent` via `TuiDialogService`
 - User enters content, submits
-- `PostService.createPost(content)` signs with WebAuthn, stores in IndexedDB
+- `PostService.createPost(content)` signs with WebAuthn or Google, stores in IndexedDB
 - `RoomService.broadcastPost(post)` sends to P2P room
 - Posts list refreshes, displays newest first
 - Each post shows sender, timestamp, content, and signature status
 
-**signIn flow:**
+**signIn flow (WebAuthn):**
 - Uses `navigator.credentials.get` to authenticate (not create a new credential)
 - The challenge is the accountName (accountName is converted to Uint8Array and used as the WebAuthn challenge)
 - Stores signer info in sessionStorage via `AuthService`
@@ -179,7 +223,43 @@ All routes use lazy-loaded components (`loadComponent`).
   - Cryptographic signature verification via Web Crypto API (`verifyWebAuthnSignature`)
 - Sets `isSignedIn` based on all checks passing
 
+**Google auth flow:**
+- `signInWithGoogle()` generates PKCE code verifier/challenge, opens Google OAuth popup
+- Popup redirects to `/google-callback` which posts code back to opener
+- `completeGoogleSignIn()` exchanges code for tokens, fetches user info
+- Generates ECDSA P-256 key pair, encrypts with PBKDF2+AES-GCM using user password
+- Stores encrypted key pair in Google Drive appdata folder
+- Stores signer in sessionStorage with `authMethod: 'google'`
+
+### Pull Accounts Script (`pull_accounts.mjs`)
+
+- Connects to global room `"piu-piu"` using `werift` (pure JS WebRTC)
+- Collects `whoami` messages for specified duration (10s local, 60s CI)
+- Saves accounts to JSON file with `subscription` field
+- CLI: `node pull_accounts.mjs [outputPath] [collectionTimeMs]`
+- Default: `accounts/test.json` with 10000ms
+- CI: `accounts/public.json` with 60000ms (via cron-job.org triggering GitHub Actions)
+
+### PWA & Push Notifications
+
+- Service worker (`public/sw.js`) with push event handling, notification click, test push
+- Config-driven VAPID public key via `config.json` (loaded in SW and app)
+- Push subscriptions encrypted with RSA public key (hybrid AES-GCM + RSA-OAEP)
+- Stored in localStorage as `${accountName}-subscription`
+- Included in global room whoami payload
+- Icons generated from `icon500.png` at build time via `scripts/generate-icons.mjs`
+
 ## Release
 
 GitHub Pages via `pull_request.yml` workflow.
 Custom domain: piu-piu.top (configured in GitHub Pages settings).
+Pull accounts via cron-job.org → GitHub Actions `repository_dispatch` (every 5 min).
+
+## Security
+
+- All data is PUBLIC. Every post, profile, and interaction is publicly visible and cryptographically verifiable.
+- WebAuthn credentials never leave the authenticator.
+- Google OAuth2 uses PKCE for code exchange security.
+- ECDSA private keys encrypted with PBKDF2+AES-GCM, stored in Google Drive appdata.
+- Push subscriptions encrypted with RSA-OAEP (hybrid with AES-GCM) before storage/transmission.
+- Client secret NOT embedded (Desktop app OAuth client type, no secret needed).
