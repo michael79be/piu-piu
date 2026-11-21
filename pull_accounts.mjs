@@ -5,51 +5,14 @@ import { RTCPeerConnection } from 'werift';
 
 const APP_ID = 'piu-piu';
 const ROOM_NAME = 'piu-piu';
-const CONNECT_TIMEOUT = 30000; // 30 seconds to connect
-const MAX_AGE = 24 * 60 * 60 * 1000; // 24 hours
+const CONNECT_TIMEOUT = 30000;
+const MAX_AGE = 24 * 60 * 60 * 1000;
+const MAX_RETRIES = 3;
+const RETRY_DELAY = 5000;
 
-// TURN servers for better WebRTC connectivity
-const TURN_CONFIG = {
-  iceServers: [
-    { urls: 'stun:stun.l.google.com:19302' },
-    { urls: 'stun:stun1.l.google.com:19302' },
-    { urls: 'stun:stun2.l.google.com:19302' },
-  ],
-};
-
-// Parse command line arguments
-// Usage: node pull_accounts.mjs [outputPath] [collectionTimeMs]
-// Default: outputPath = 'accounts/test.json', collectionTimeMs = 10000 (10 seconds)
-// CI:    outputPath = 'accounts/public.json', collectionTimeMs = 60000 (60 seconds)
 const args = process.argv.slice(2);
 const OUTPUT_PATH = resolve(args[0] || 'accounts/test.json');
 const COLLECTION_TIME = parseInt(args[1] || '10000', 10);
-
-/**
- * @typedef {Object} SignerInfo
- * @property {string} username
- * @property {string} account
- * @property {string} publicKey
- * @property {string} authenticatorData
- * @property {string} clientData
- * @property {string} signature
- * @property {string} profileUrl
- * @property {string} [subscription]
- */
-
-/**
- * @typedef {Object} AccountEntry
- * @property {string} username
- * @property {string} account
- * @property {string} publicKey
- * @property {string} profileUrl
- * @property {string} [subscription]
- * @property {number} lastSeen
- */
-
-function getAccountKey(entry) {
-  return `${entry.username}|${entry.account}|${entry.profileUrl}`;
-}
 
 async function loadExistingAccounts() {
   const map = new Map();
@@ -59,7 +22,6 @@ async function loadExistingAccounts() {
       for (const entry of data.accounts || []) {
         const key = getAccountKey(entry);
         const existing = map.get(key);
-        // Keep the one with latest lastSeen
         if (!existing || entry.lastSeen > existing.lastSeen) {
           map.set(key, entry);
         }
@@ -69,6 +31,10 @@ async function loadExistingAccounts() {
     }
   }
   return map;
+}
+
+function getAccountKey(entry) {
+  return `${entry.username}|${entry.account}|${entry.profileUrl}`;
 }
 
 function saveAccounts(accounts) {
@@ -88,7 +54,6 @@ function saveAccounts(accounts) {
     accounts: filtered,
   };
 
-  // Check if accounts content changed (ignore updatedAt and lastSeen)
   if (existsSync(OUTPUT_PATH)) {
     try {
       const oldData = JSON.parse(readFileSync(OUTPUT_PATH, 'utf-8'));
@@ -118,15 +83,45 @@ function saveAccounts(accounts) {
   console.log(`Saved ${filtered.length} accounts to ${OUTPUT_PATH}`);
 }
 
+async function joinRoomWithRetry() {
+  let lastError;
+  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    console.log(`Connecting to ${APP_ID}/${ROOM_NAME} (attempt ${attempt}/${MAX_RETRIES})...`);
+    const room = joinRoom(
+      { appId: APP_ID, rtcPolyfill: RTCPeerConnection },
+      ROOM_NAME
+    );
+
+    try {
+      await Promise.race([
+        room.ready,
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Connection timeout')), CONNECT_TIMEOUT)),
+      ]);
+      console.log('Room ready.');
+      return room;
+    } catch (err) {
+      lastError = err;
+      console.error(`Connection attempt ${attempt} failed:`, err.message);
+      room.leave();
+      if (attempt < MAX_RETRIES) {
+        console.log(`Waiting ${RETRY_DELAY}ms before retry...`);
+        await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
+      }
+    }
+  }
+  throw lastError;
+}
+
 async function main() {
-  console.log(`Connecting to ${APP_ID}/${ROOM_NAME}...`);
   console.log(`Output: ${OUTPUT_PATH}, Collection time: ${COLLECTION_TIME}ms`);
 
-  // Use trystero with rtcPolyfill = RTCPeerConnection (werift)
-  const room = joinRoom(
-    { appId: APP_ID, rtcPolyfill: RTCPeerConnection, rtcConfig: TURN_CONFIG },
-    ROOM_NAME
-  );
+  let room;
+  try {
+    room = await joinRoomWithRetry();
+  } catch (err) {
+    console.error('All connection attempts failed:', err.message);
+    process.exit(1);
+  }
 
   const whoamiAction = room.makeAction('whoami');
 
@@ -152,7 +147,6 @@ async function main() {
     };
     const key = getAccountKey(entry);
     const existing = accounts.get(key);
-    // Keep the one with latest lastSeen
     if (!existing || entry.lastSeen > existing.lastSeen) {
       accounts.set(key, entry);
     }
@@ -172,19 +166,6 @@ async function main() {
     errorCount++;
     console.error(`[error]`, error);
   });
-
-  // Wait for room to be ready with timeout
-  try {
-    await Promise.race([
-      room.ready,
-      new Promise((_, reject) => setTimeout(() => reject(new Error('Connection timeout')), CONNECT_TIMEOUT)),
-    ]);
-    console.log('Room ready.');
-  } catch (err) {
-    console.error('Failed to connect:', err.message);
-    room.leave();
-    process.exit(1);
-  }
 
   // Wait a bit more for peer discovery
   console.log('Waiting 10s for peer discovery...');
