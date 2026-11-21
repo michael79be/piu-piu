@@ -1,0 +1,42 @@
+<div class="menu w-[200px] max-sm:w-[80px] border-r border-gray-200 bg-white flex flex-col overflow-y-auto p-2 h-screen">
+  <div class="ps-2 mb-3 cursor-pointer" (click)="goHome()" tuiHintDirection="end" tuiHint="Home">
+    <img src="apple-touch-icon.png" alt="Piu-Piu" class="w-12 h-12 rounded-full bg-white p-1 hover:opacity-80 transition-opacity cursor-pointer" />
+  </div>
+  <nav class="flex-1">
+    <button tuiButton appearance="flat" size="m" class="w-full justify-start px-3 py-2 mb-2" (click)="onFeed()"
+    tuiHintDirection="end" tuiHint="Feed">
+      <la-icon [icon]="['las', 'rss']" size="2x"></la-icon>
+      <span class="max-sm:hidden">Feed</span>
+    </button>
+    @if (canPost()) {
+      <button tuiButton appearance="flat" size="m" class="w-full justify-start px-3 py-2 mb-2" (click)="openPostDialog()"
+      tuiHintDirection="end" tuiHint="Post">
+        <la-icon [icon]="['lar', 'edit']" size="2x"></la-icon>
+        <span class="max-sm:hidden">Post</span>
+      </button>
+    }
+  </nav>
+
+  <div tuiDropdown #dropdown="tuiDropdown" [tuiDropdownOpen]="showAccountMenu()">
+  <div [tuiDropdown]="content">
+    <button tuiButton appearance="flat" tuiDropdownAuto tuiDropdownRole="menu" type="button" [tuiDropdown]="content" class="w-full justify-start"
+    tuiHintDirection="end" tuiHint="@{{ displayName() }}">
+      <la-icon [icon]="['lar', 'user']" size="2x" class="max-sm:ms-[-0.25em]"></la-icon>
+      <span class="max-sm:hidden">@{{ displayName() }}</span>
+    </button>
+  </div>
+
+  <ng-template #content>
+    <tui-data-list>
+      @for (item of accountMenu(); track item) {
+        <a
+          tuiOption
+          (click)="item.command()"
+        >
+          {{ item.label }}
+        </a>
+      }
+    </tui-data-list>
+  </ng-template>
+</div>
+</div>

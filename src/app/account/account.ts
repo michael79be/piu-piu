@@ -230,7 +230,7 @@ export class Account implements OnInit, OnDestroy {
   }
 
   onHome(): void {
-    this.router.navigateByUrl('/');
+    this.router.navigateByUrl('/feed');
   }
 
   openPostDialog(): void {

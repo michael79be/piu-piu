@@ -24,5 +24,12 @@ export function atMatch(segments: UrlSegment[]): UrlMatchResult | null {
 export const routes: Routes = [
   { path: '', loadComponent: () => import('./home/home').then(m => m.Home) },
   { path: 'register', loadComponent: () => import('./register/register').then(m => m.Register) },
-  { matcher: atMatch, loadComponent: () => import('./account/account').then(m => m.Account), resolve: { profileData: ProfileResolver } },
+  {
+    path: '',
+    loadComponent: () => import('./layout/layout').then(m => m.Layout),
+    children: [
+      { path: 'feed', loadComponent: () => import('./feed/feed').then(m => m.Feed) },
+      { matcher: atMatch, loadComponent: () => import('./account/account').then(m => m.Account), resolve: { profileData: ProfileResolver } },
+    ]
+  },
 ];

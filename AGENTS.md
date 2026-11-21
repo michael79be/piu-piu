@@ -244,15 +244,18 @@ All routes use lazy-loaded components (`loadComponent`).
 - **24h cleanup** - removes accounts with `lastSeen` > 24h
 - **Deduplication** - keyed by `username|account|profileUrl`, keeps latest `lastSeen`
 
-### PWA & Push Notifications
+### Layout & Menu Components
 
-- Service worker (`public/sw.js`) with push event handling, notification click, test push
-- Config-driven VAPID public key via `config.json` (loaded in SW and app)
-- Push subscriptions encrypted with RSA public key (hybrid AES-GCM + RSA-OAEP)
-- **Stored in IndexedDB (per-account database, key `@subscription`)** instead of localStorage for service worker access
-- **SW checks IndexedDB for `@subscription` before showing notification** - push payload must include `accountName`
-- Included in global room whoami payload
-- Icons generated from `icon500.png` at build time via `scripts/generate-icons.mjs` (uses `jimp`)
+- `Layout` (`src/app/layout/layout.ts`) - wrapper component with shared sidebar/menu, contains `RouterOutlet` for child routes
+- `Menu` (`src/app/menu/menu.ts`) - sidebar with app icon, navigation (Feed/Back + Post), user dropdown with sign in/out, push notifications
+- `Feed` (`src/app/feed/feed.ts`) - child route under Layout, shows posts from followed accounts sorted by timestamp descending
+- `Account` (`src/app/account/account.ts`) - child route under Layout, shows profile and posts for specific account
+
+Routes:
+- `/` - Home (landing page)
+- `/feed` - Feed (Layout + Feed component)
+- `/@accountName` - Account (Layout + Account component)
+- `/register` - Register
 
 ## Release
 

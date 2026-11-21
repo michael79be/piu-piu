@@ -1,0 +1,11 @@
+<div class="flex flex-col h-screen bg-white text-black">
+  <div class="flex-1 flex overflow-hidden">
+    <app-menu 
+      [canPost]="canPost()"
+      [signerMatchesAccount]="signerMatchesAccount()">
+    </app-menu>
+    <main class="flex-1 overflow-y-auto bg-white">
+      <router-outlet></router-outlet>
+    </main>
+  </div>
+</div>

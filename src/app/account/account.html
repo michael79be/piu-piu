@@ -1,108 +1,60 @@
-<div class="flex flex-col h-screen bg-white text-black">
-  <div class="flex-1 flex overflow-hidden">
-    <div class="menu w-[200px] max-sm:w-[80px] border-r border-gray-200 bg-white flex flex-col overflow-y-auto p-2">
-      <div class="ps-2 mb-3">
-        <img src="apple-touch-icon.png" alt="Piu-Piu" class="w-12 h-12 rounded-full bg-white p-1" />
-      </div>
-      <nav class="flex-1">
-        <button tuiButton appearance="flat" size="m" class="w-full justify-start px-3 py-2 mb-2" (click)="onHome()"
-        tuiHintDirection="end" tuiHint="Home">
-          <la-icon icon="home" size="2x"></la-icon>
-          <span class="max-sm:hidden">Home</span>
-        </button>
-        @if (canPost()) {
-          <button tuiButton appearance="flat" size="m" class="w-full justify-start px-3 py-2 mb-2" (click)="openPostDialog()"
-          tuiHintDirection="end" tuiHint="Post">
-            <la-icon [icon]="['lar', 'edit']" size="2x"></la-icon>
-            <span class="max-sm:hidden">Post</span>
-          </button>
+<div class="max-w-2xl mx-auto">
+  <div class="sticky top-0 z-10 bg-white border-b border-gray-200 px-6 py-4">
+    <div class="flex items-center justify-between gap-3">
+      <button tuiButton appearance="flat" size="m" class="p-2" (click)="onHome()"
+      tuiHintDirection="end" tuiHint="Feed">
+        <la-icon [icon]="['las', 'arrow-left']" class="text-gray-600"></la-icon>
+      </button>
+      <div class="flex-1">
+        @if (profileData(); as profile) {
+          <h1 class="text-2xl font-bold text-gray-900">@{{ profile.username }}</h1>
+          <p class="text-sm text-gray-500">@{{ accountName() }}</p>
         }
-      </nav>
-
-      <div tuiDropdown #dropdown="tuiDropdown" [tuiDropdownOpen]="showAccountMenu()">
-      <div [tuiDropdown]="content">
-        <button tuiButton appearance="flat" tuiDropdownAuto tuiDropdownRole="menu" type="button" [tuiDropdown]="content" class="w-full justify-start"
-        tuiHintDirection="end" tuiHint="@{{ displayName() }}">
-          <la-icon [icon]="['lar', 'user']" size="2x" class="max-sm:ms-[-0.25em]"></la-icon>
-          <span class="max-sm:hidden">@{{ displayName() }}</span>
+      </div>
+      @if (isSignedIn() && !signerMatchesAccount() && profileData()) {
+        <button tuiButton [appearance]="isFollowing() ? 'secondary' : 'primary'" size="m" 
+                (click)="toggleFollow()" [disabled]="followLoading()"
+                class="max-sm:hidden">
+          @if (followLoading()) {
+            <la-icon [icon]="['las', 'spinner']" class="animate-spin"></la-icon>
+          } @else if (isFollowing()) {
+            <la-icon [icon]="['las', 'check']"></la-icon>
+            <span class="ms-1">Following</span>
+          } @else {
+            <la-icon [icon]="['las', 'user-plus']"></la-icon>
+            <span class="ms-1">Follow</span>
+          }
         </button>
-      </div>
-
-      <ng-template #content>
-        <tui-data-list>
-          @for (item of accountMenu(); track item) {
-            <a
-              tuiOption
-              (click)="item.command()"
-            >
-              {{ item.label }}
-            </a>
-          }
-        </tui-data-list>
-      </ng-template>
+      }
     </div>
-    </div>
+  </div>
 
-    <main class="flex-1 overflow-y-auto bg-white">
-      <div class="max-w-2xl mx-auto">
-        <div class="sticky top-0 z-10 bg-white border-b border-gray-200 px-6 py-4">
-          <div class="flex items-center justify-between gap-3">
-            <button tuiButton appearance="flat" size="m" class="p-2" (click)="onHome()">
-              <la-icon [icon]="['las', 'arrow-left']" class="text-gray-600"></la-icon>
-            </button>
-            <div class="flex-1">
-              @if (profileData(); as profile) {
-                <h1 class="text-2xl font-bold text-gray-900">@{{ profile.username }}</h1>
-                <p class="text-sm text-gray-500">@{{ accountName() }}</p>
-              }
-            </div>
-            @if (isSignedIn() && !signerMatchesAccount() && profileData()) {
-              <button tuiButton [appearance]="isFollowing() ? 'secondary' : 'primary'" size="m" 
-                      (click)="toggleFollow()" [disabled]="followLoading()"
-                      class="max-sm:hidden">
-                @if (followLoading()) {
-                  <la-icon [icon]="['las', 'spinner']" class="animate-spin"></la-icon>
-                } @else if (isFollowing()) {
-                  <la-icon [icon]="['las', 'check']"></la-icon>
-                  <span class="ms-1">Following</span>
-                } @else {
-                  <la-icon [icon]="['las', 'user-plus']"></la-icon>
-                  <span class="ms-1">Follow</span>
-                }
-              </button>
-            }
-          </div>
-        </div>
-
-        <div class="p-6 space-y-4">
-          @if (posts().length === 0) {
-            <div class="text-center text-gray-500 py-12">
-              <la-icon [icon]="['las', 'comment']" class="text-4xl mb-2"></la-icon>
-              <p>No posts yet.</p>
-            </div>
-          }
-
-          <section class="space-y-4">
-            @for (post of posts(); track post.uuid) {
-              <article class="bg-white border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow">
-                <div class="text-gray-700 whitespace-pre-wrap mb-2">{{ post.content }}</div>
-                <footer class="flex items-center justify-between pt-2 border-t border-gray-100">
-                  <div class="text-xs text-gray-500 flex items-center gap-1">
-                    <la-icon [icon]="['las', 'clock']" class="text-gray-400"></la-icon>
-                    <span>{{ formatTime(post.timestamp) }}</span>
-                  </div>
-                  @if (post.signature && post.signature.length > 0) {
-                    <div class="flex items-center gap-2 text-xs text-green-600">
-                      <la-icon [icon]="['las', 'shield-alt']" class="text-green-500"></la-icon>
-                      <span>Signed</span>
-                    </div>
-                  }
-                </footer>
-              </article>
-            }
-          </section>
-        </div>
+  <div class="p-6 space-y-4">
+    @if (posts().length === 0) {
+      <div class="text-center text-gray-500 py-12">
+        <la-icon [icon]="['las', 'comment']" class="text-4xl mb-2"></la-icon>
+        <p>No posts yet.</p>
       </div>
-    </main>
+    }
+
+    <section class="space-y-4">
+      @for (post of posts(); track post.uuid) {
+        <article class="bg-white border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow">
+          <div class="text-gray-700 whitespace-pre-wrap mb-2">{{ post.content }}</div>
+          <footer class="flex items-center justify-between pt-2 border-t border-gray-100">
+            <div class="text-xs text-gray-500 flex items-center gap-1">
+              <la-icon [icon]="['las', 'clock']" class="text-gray-400"></la-icon>
+              <span>{{ formatTime(post.timestamp) }}</span>
+            </div>
+            @if (post.signature && post.signature.length > 0) {
+              <div class="flex items-center gap-2 text-xs text-green-600">
+                <la-icon [icon]="['las', 'shield-alt']" class="text-green-500"></la-icon>
+                <span>Signed</span>
+              </div>
+            }
+          </footer>
+        </article>
+      }
+    </section>
   </div>
 </div>

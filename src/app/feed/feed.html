@@ -1,0 +1,43 @@
+<div class="max-w-2xl mx-auto">
+  <div class="sticky top-0 z-10 bg-white border-b border-gray-200 px-6 py-4">
+    <div class="flex items-center justify-between gap-3">
+      <div class="flex-1 text-center">
+        <h1 class="text-2xl font-bold text-gray-900">Feed</h1>
+        <p class="text-sm text-gray-500">Posts from accounts you follow</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="p-6 space-y-4">
+    @if (posts().length === 0) {
+      <div class="text-center text-gray-500 py-12">
+        <la-icon [icon]="['las', 'list']" class="text-4xl mb-2"></la-icon>
+        <p>No posts yet. Follow some accounts to see their posts here.</p>
+      </div>
+    }
+
+    <section class="space-y-4">
+      @for (post of posts(); track post.uuid) {
+        <article class="bg-white border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow">
+          <div class="text-gray-700 whitespace-pre-wrap mb-2">{{ post.content }}</div>
+          <footer class="flex items-center justify-between pt-2 border-t border-gray-100">
+            <div class="flex items-center gap-2 text-sm text-gray-700">
+              <span class="font-medium">@{{ post.senderAccount }}</span>
+              <span class="text-gray-400">·</span>
+              <span class="text-xs text-gray-500 flex items-center gap-1">
+                <la-icon [icon]="['las', 'clock']" class="text-gray-400"></la-icon>
+                <span>{{ formatTime(post.timestamp) }}</span>
+              </span>
+            </div>
+            @if (post.signature && post.signature.length > 0) {
+              <div class="flex items-center gap-2 text-xs text-green-600">
+                <la-icon [icon]="['las', 'shield-alt']" class="text-green-500"></la-icon>
+                <span>Signed</span>
+              </div>
+            }
+          </footer>
+        </article>
+      }
+    </section>
+  </div>
+</div>
