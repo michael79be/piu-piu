@@ -19,7 +19,7 @@ Decentralized social network. Full client-side, no backend, hosted on piu-piu.to
 
 5. **Posts** — Signed-in users can create posts via the Post dialog. Each post is signed with WebAuthn (ECDSA P-256) or Google ECDSA key, stored in per-account IndexedDB, and displayed in the feed with signature verification status. Posts are broadcast to all peers in the room.
 
-6. **Push Notifications** — Subscribe via service worker. Subscription encrypted with RSA public key (hybrid AES-GCM + RSA-OAEP), stored locally and announced in global room whoami.
+6. **Push Notifications** — Subscribe via service worker. Subscription encrypted with RSA public key (hybrid AES-GCM + RSA-OAEP), stored locally and announced in global room whoami. Persists across reloads with automatic restoration.
 
 **Profile loading flow:**
 - `ProfileResolver` loads profile data from route params (`accountName` + optional `provider`)
@@ -96,7 +96,7 @@ npm install
 npm start
 ```
 
-`npm start` copies local SSL certificates (via `office-addin-dev-certs`) and serves the app with `ng serve`. The local shortener provider runs on `http://localhost:3000` (`provider.mjs`).
+`npm start` serves the app with `ng serve`. The local shortener provider runs on `http://localhost:3000` (`provider.mjs`).
 
 ## Build
 
@@ -125,6 +125,12 @@ node pull_accounts.mjs accounts/public.json 60000
 ```
 
 Runs via cron-job.org → GitHub Actions `repository_dispatch` every 5 minutes.
+
+Features:
+- 3 retries with 5s delay on connection failure
+- Fails on any peer connection errors
+- 24h cleanup of stale accounts
+- Deduplication by username+account+profileUrl (keeps latest lastSeen)
 
 ## Release
 

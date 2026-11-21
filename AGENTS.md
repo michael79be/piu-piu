@@ -6,12 +6,11 @@ Decentralized social network. Full client-side, no backend, hosted on piu-piu.to
 
 - Node, Angular 22, Angular CLI (`npx ng`), SCSS, TypeScript
 - Tailwind CSS v4 via PostCSS, Taiga UI 5, angular-line-awesome, vitest, jsdom
-- office-addin-dev-certs for local SSL
 - Local URL shortener provider (`provider.mjs`, `:3000`) for development
 - trystero for WebRTC-based P2P communication
 - idb for IndexedDB wrapper
 - werift for pure JS WebRTC in Node.js (pull_accounts.mjs)
-- sharp for PWA icon generation
+- jimp for PWA icon generation (pure JS, no native deps)
 
 ## Rules
 
@@ -21,7 +20,7 @@ Decentralized social network. Full client-side, no backend, hosted on piu-piu.to
 
 ## Commands
 
-- `npm start` - serve locally (copies dev SSL certs, then `ng serve`)
+- `npm start` - serve locally (`ng serve`)
 - `npm run build` - production build (no base-href, for custom domain)
 - `npm test` - tests (vitest via `ng test`)
 - `node pull_accounts.mjs [outputPath] [collectionTimeMs]` - pull accounts from global room (default: accounts/test.json, 10s; CI: accounts/public.json, 60s)
@@ -89,8 +88,8 @@ Local provider (`provider.mjs` / `provider/`) runs on `:3000` and persists to `p
 - Dispatches `piu-piu:load-posts` custom event after storing incoming posts
 - Global room `"piu-piu"` for all users (whoami only), polling: 10s newer posts (`after` latest), 30s older posts (`before` oldest)
 - `joinGlobalRoom()` / `leaveGlobalRoom()` - manages global room connection
-- `announceGlobalIfSignedIn()` - broadcasts whoami with encrypted subscription field
-- `updateWhoamiSubscription()` - updates whoami with new push subscription
+- `announceGlobalIfSignedIn()` - broadcasts whoami with encrypted subscription field (preserves existing PushSubscription)
+- `updateWhoamiSubscription()` - updates whoami with new push subscription, updates sessionStorage
 - Logs join/leave/whoami/post events to console
 
 ### Post service (`src/app/post/post.service.ts`)
@@ -196,6 +195,7 @@ All routes use lazy-loaded components (`loadComponent`).
 - Auto-triggers WebAuthn sign-in when `?signIn=true` query param present
 - Shows password prompt dialog for Google auth completion
 - Push notifications: subscribe/unsubscribe via service worker, hybrid RSA encryption, updates whoami
+- **Push subscription persists across reloads** - auto-restored on page load via `pushManager.getSubscription()`
 
 **Profile loading flow:**
 - `ProfileResolver` loads profile data from route params (`accountName` + optional `provider`)
@@ -239,6 +239,10 @@ All routes use lazy-loaded components (`loadComponent`).
 - CLI: `node pull_accounts.mjs [outputPath] [collectionTimeMs]`
 - Default: `accounts/test.json` with 10000ms
 - CI: `accounts/public.json` with 60000ms (via cron-job.org triggering GitHub Actions)
+- **3 retries** with 5s delay on connection failure
+- **Fails on any peer connection errors** (`errorCount > 0`)
+- **24h cleanup** - removes accounts with `lastSeen` > 24h
+- **Deduplication** - keyed by `username|account|profileUrl`, keeps latest `lastSeen`
 
 ### PWA & Push Notifications
 
@@ -247,7 +251,7 @@ All routes use lazy-loaded components (`loadComponent`).
 - Push subscriptions encrypted with RSA public key (hybrid AES-GCM + RSA-OAEP)
 - Stored in localStorage as `${accountName}-subscription`
 - Included in global room whoami payload
-- Icons generated from `icon500.png` at build time via `scripts/generate-icons.mjs`
+- Icons generated from `icon500.png` at build time via `scripts/generate-icons.mjs` (uses `jimp`)
 
 ## Release
 
