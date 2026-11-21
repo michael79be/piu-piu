@@ -5,10 +5,19 @@ import { RTCPeerConnection } from 'werift';
 
 const APP_ID = 'piu-piu';
 const ROOM_NAME = 'piu-piu';
-const CONNECT_TIMEOUT = 30000;
-const MAX_AGE = 24 * 60 * 60 * 1000;
+const CONNECT_TIMEOUT = 30000; // 30 seconds to connect
+const MAX_AGE = 24 * 60 * 60 * 1000; // 24 hours
 const MAX_RETRIES = 3;
 const RETRY_DELAY = 5000;
+
+// TURN/STUN servers for better WebRTC connectivity
+const TURN_CONFIG = {
+  iceServers: [
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun1.l.google.com:19302' },
+    { urls: 'stun:stun2.l.google.com:19302' },
+  ],
+};
 
 const args = process.argv.slice(2);
 const OUTPUT_PATH = resolve(args[0] || 'accounts/test.json');
@@ -88,7 +97,7 @@ async function joinRoomWithRetry() {
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
     console.log(`Connecting to ${APP_ID}/${ROOM_NAME} (attempt ${attempt}/${MAX_RETRIES})...`);
     const room = joinRoom(
-      { appId: APP_ID, rtcPolyfill: RTCPeerConnection },
+      { appId: APP_ID, rtcPolyfill: RTCPeerConnection, rtcConfig: TURN_CONFIG },
       ROOM_NAME
     );
 

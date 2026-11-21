@@ -82,22 +82,75 @@ self.addEventListener('push', (event) => {
     }
   }
 
-  const title = data.title || 'Piu-Piu';
-  const options = {
-    body: data.body || 'New notification',
-    icon: '/icons/icon-192x192.png',
-    badge: '/icons/icon-72x72.png',
-    vibrate: [200, 100, 200],
-    data: data.data || {},
-    actions: [
-      { action: 'open', title: 'Open' },
-      { action: 'close', title: 'Close' },
-    ],
-    requireInteraction: true,
-  };
+  const accountName = data.accountName;
+  if (!accountName) {
+    console.log('[SW] No accountName in push data, skipping notification');
+    return;
+  }
 
-  event.waitUntil(self.registration.showNotification(title, options));
+  event.waitUntil(
+    (async () => {
+      // Check if this account has a valid subscription in IndexedDB
+      const hasSubscription = await checkAccountSubscription(accountName);
+      if (!hasSubscription) {
+        console.log('[SW] No valid subscription for account:', accountName, 'skipping notification');
+        return;
+      }
+
+      const title = data.title || 'Piu-Piu';
+      const options = {
+        body: data.body || 'New notification',
+        icon: '/icons/icon-192x192.png',
+        badge: '/icons/icon-72x72.png',
+        vibrate: [200, 100, 200],
+        data: data.data || {},
+        actions: [
+          { action: 'open', title: 'Open' },
+          { action: 'close', title: 'Close' },
+        ],
+        requireInteraction: true,
+      };
+
+      await self.registration.showNotification(title, options);
+    })()
+  );
 });
+
+async function checkAccountSubscription(accountName) {
+  try {
+    // Open the account's IndexedDB database
+    const db = await openDB(accountName);
+    const subscription = await dbGet(db, 'subscription', '@subscription');
+    return !!subscription;
+  } catch (error) {
+    console.error('[SW] Failed to check subscription:', error);
+    return false;
+  }
+}
+
+function openDB(name) {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(name, 1);
+    request.onupgradeneeded = () => {
+      const db = request.result;
+      if (!db.objectStoreNames.contains('subscription')) {
+        db.createObjectStore('subscription');
+      }
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+function dbGet(db, storeName, key) {
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(storeName, 'readonly');
+    const store = tx.objectStore(storeName);
+    const request = store.get(key);
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+}
 
 self.addEventListener('notificationclick', (event) => {
   console.log('[SW] Notification click:', event.action);

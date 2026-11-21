@@ -110,6 +110,7 @@ async function sendTestNotification() {
       const payload = JSON.stringify({
         title: 'Piu-Piu Test',
         body: TEST_MESSAGE || `Test notification for @${account.username}`,
+        accountName: account.account,
         data: { test: true, timestamp: Date.now() }
       });
       await sendNotification(subscription, payload);

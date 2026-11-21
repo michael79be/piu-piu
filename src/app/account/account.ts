@@ -198,8 +198,8 @@ export class Account implements OnInit, OnDestroy {
   signOut(): void {
     const accountName = this.accountName();
     if (accountName) {
-      // Clear push subscription
-      localStorage.removeItem(`${accountName}-subscription`);
+      // Clear push subscription from IndexedDB
+      this.postService.saveSubscription(accountName, null);
       this.pushSubscription.set(null);
       // Update whoami to remove subscription
       this.roomService.updateWhoamiSubscription('');
@@ -220,16 +220,15 @@ export class Account implements OnInit, OnDestroy {
       if (subscription) {
         // Active subscription exists in browser
         this.pushSubscription.set(subscription);
-        // Also load encrypted version for whoami updates
-        const stored = localStorage.getItem(`${accountName}-subscription`);
-        if (stored) {
-          this.encryptedSubscription = stored;
+        // Also load encrypted version for whoami updates from IndexedDB
+        const storedSub = await this.postService.getSubscription(accountName);
+        if (storedSub) {
+          this.pushSubscription.set(storedSub);
         }
       } else {
-        // No active subscription - check if we have encrypted data
-        const stored = localStorage.getItem(`${accountName}-subscription`);
-        if (stored) {
-          this.encryptedSubscription = stored;
+        // No active subscription - check if we have encrypted data in IndexedDB
+        const storedSub = await this.postService.getSubscription(accountName);
+        if (storedSub) {
           // Re-subscribe to restore the subscription (browser returns existing if valid)
           await this.resubscribe(accountName);
         }
@@ -252,22 +251,20 @@ export class Account implements OnInit, OnDestroy {
       });
       
       this.pushSubscription.set(subscription);
-      // Re-encrypt and save new subscription
+      // Re-encrypt and save new subscription to IndexedDB
       const rsaPublicKey = await this.rsaPublicKeyService.getPublicKey();
       const newEncrypted = await this.cryptoService.rsaEncrypt(JSON.stringify(subscription), rsaPublicKey);
       if (newEncrypted) {
-        localStorage.setItem(`${accountName}-subscription`, newEncrypted);
-        this.encryptedSubscription = newEncrypted;
+        await this.postService.saveSubscription(accountName, subscription);
         this.roomService.updateWhoamiSubscription(newEncrypted);
       }
     } catch {
       // Failed to restore, clear invalid data
-      localStorage.removeItem(`${accountName}-subscription`);
-      this.encryptedSubscription = null;
+      await this.postService.saveSubscription(accountName, null);
     }
   }
 
-  private encryptedSubscription: string | null = null;
+  // private encryptedSubscription: string | null = null;
 
   async togglePushNotifications(): Promise<void> {
     if (!this.pushSupported()) {
@@ -288,9 +285,8 @@ export class Account implements OnInit, OnDestroy {
         if (subscription) {
           await subscription.unsubscribe();
         }
-        localStorage.removeItem(`${accountName}-subscription`);
+        await this.postService.saveSubscription(accountName, null);
         this.pushSubscription.set(null);
-        this.encryptedSubscription = null;
         // Update whoami to remove subscription
         this.roomService.updateWhoamiSubscription('');
         this.errorService.showSuccess('Push notifications disabled');
@@ -312,9 +308,8 @@ export class Account implements OnInit, OnDestroy {
           throw new Error('Failed to encrypt subscription');
         }
 
-        // Save encrypted subscription to localStorage
-        localStorage.setItem(`${accountName}-subscription`, encrypted);
-        this.encryptedSubscription = encrypted;
+        // Save subscription to IndexedDB
+        await this.postService.saveSubscription(accountName, subscription);
         this.pushSubscription.set(subscription);
 
         // Update whoami in global room

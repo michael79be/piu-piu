@@ -19,7 +19,7 @@ Decentralized social network. Full client-side, no backend, hosted on piu-piu.to
 
 5. **Posts** — Signed-in users can create posts via the Post dialog. Each post is signed with WebAuthn (ECDSA P-256) or Google ECDSA key, stored in per-account IndexedDB, and displayed in the feed with signature verification status. Posts are broadcast to all peers in the room.
 
-6. **Push Notifications** — Subscribe via service worker. Subscription encrypted with RSA public key (hybrid AES-GCM + RSA-OAEP), stored locally and announced in global room whoami. Persists across reloads with automatic restoration.
+6. **Push Notifications** — Subscribe via service worker. Subscription encrypted with RSA public key (hybrid AES-GCM + RSA-OAEP), stored in per-account IndexedDB (key `@subscription`) and announced in global room whoami. **Service worker checks IndexedDB before showing notifications** - push payload must include `accountName`. Persists across reloads with automatic restoration.
 
 **Profile loading flow:**
 - `ProfileResolver` loads profile data from route params (`accountName` + optional `provider`)
@@ -75,6 +75,7 @@ Everything is client-side; there is no server except the optional local shortene
 - Per-account databases (name = accountName)
 - `createPost(content)` - creates post with uuid, sender, timestamp, content, WebAuthn/Google signature
 - `getPost(uuid)`, `getAllPosts()`, `deletePost(uuid)`, `verifyPost(post)`
+- **`saveSubscription(accountName, subscription)` / `getSubscription(accountName)`** - manages push subscriptions in `@subscription` key
 
 ### Post dialog (`src/app/post/post-dialog/`)
 - `PostDialogComponent` - Taiga UI routable dialog via `TuiDialogService`

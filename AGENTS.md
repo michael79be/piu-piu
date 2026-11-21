@@ -195,7 +195,7 @@ All routes use lazy-loaded components (`loadComponent`).
 - Auto-triggers WebAuthn sign-in when `?signIn=true` query param present
 - Shows password prompt dialog for Google auth completion
 - Push notifications: subscribe/unsubscribe via service worker, hybrid RSA encryption, updates whoami
-- **Push subscription persists across reloads** - auto-restored on page load via `pushManager.getSubscription()`
+- **Push subscription persists across reloads** - auto-restored on page load via `pushManager.getSubscription()` and IndexedDB `@subscription`
 
 **Profile loading flow:**
 - `ProfileResolver` loads profile data from route params (`accountName` + optional `provider`)
@@ -249,7 +249,8 @@ All routes use lazy-loaded components (`loadComponent`).
 - Service worker (`public/sw.js`) with push event handling, notification click, test push
 - Config-driven VAPID public key via `config.json` (loaded in SW and app)
 - Push subscriptions encrypted with RSA public key (hybrid AES-GCM + RSA-OAEP)
-- Stored in localStorage as `${accountName}-subscription`
+- **Stored in IndexedDB (per-account database, key `@subscription`)** instead of localStorage for service worker access
+- **SW checks IndexedDB for `@subscription` before showing notification** - push payload must include `accountName`
 - Included in global room whoami payload
 - Icons generated from `icon500.png` at build time via `scripts/generate-icons.mjs` (uses `jimp`)
 
@@ -266,4 +267,5 @@ Pull accounts via cron-job.org → GitHub Actions `repository_dispatch` (every 5
 - Google OAuth2 uses PKCE for code exchange security.
 - ECDSA private keys encrypted with PBKDF2+AES-GCM, stored in Google Drive appdata.
 - Push subscriptions encrypted with RSA-OAEP (hybrid with AES-GCM) before storage/transmission.
+- Push subscriptions stored in IndexedDB (per-account database, key `@subscription`) instead of localStorage for service worker access.
 - Client secret NOT embedded (Desktop app OAuth client type, no secret needed).

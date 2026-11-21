@@ -15,10 +15,23 @@ export interface PostData {
   clientData: string; // base64
 }
 
+export interface SubscriptionData {
+  endpoint: string;
+  expirationTime: number | null;
+  keys: {
+    p256dh: string;
+    auth: string;
+  };
+}
+
 interface PostsDB extends DBSchema {
   posts: {
     key: string;
     value: string;
+  };
+  subscription: {
+    key: string;
+    value: SubscriptionData;
   };
 }
 
@@ -165,6 +178,54 @@ export class PostService {
   async deletePost(accountName: string, uuid: string): Promise<void> {
     const db = await this.getDB(accountName);
     await db.delete('posts', uuid);
+  }
+
+  async saveSubscription(accountName: string, subscription: PushSubscription | null): Promise<void> {
+    const db = await this.getDB(accountName);
+    if (subscription) {
+      const subData: SubscriptionData = {
+        endpoint: subscription.endpoint,
+        expirationTime: subscription.expirationTime,
+        keys: {
+          p256dh: this.bytesToBase64(new Uint8Array(subscription.getKey('p256dh')!)),
+          auth: this.bytesToBase64(new Uint8Array(subscription.getKey('auth')!)),
+        },
+      };
+      await db.put('subscription', subData, '@subscription');
+    } else {
+      await db.delete('subscription', '@subscription');
+    }
+  }
+
+  async getSubscription(accountName: string): Promise<PushSubscription | null> {
+    const db = await this.getDB(accountName);
+    const subData = await db.get('subscription', '@subscription');
+    if (!subData) return null;
+    
+    // Reconstruct PushSubscription from stored data
+    const keys = {
+      p256dh: this.base64ToBytes(subData.keys.p256dh),
+      auth: this.base64ToBytes(subData.keys.auth),
+    };
+    
+    // Create a minimal PushSubscription-like object
+    return {
+      endpoint: subData.endpoint,
+      expirationTime: subData.expirationTime,
+      getKey: (name: string) => {
+        if (name === 'p256dh') return keys.p256dh.buffer;
+        if (name === 'auth') return keys.auth.buffer;
+        return null;
+      },
+      toJSON: () => ({
+        endpoint: subData.endpoint,
+        expirationTime: subData.expirationTime,
+        keys: {
+          p256dh: subData.keys.p256dh,
+          auth: subData.keys.auth,
+        },
+      }),
+    } as unknown as PushSubscription;
   }
 
   async verifyPost(post: PostData): Promise<boolean> {
