@@ -1,20 +1,18 @@
 import { Injectable, signal, computed, inject } from '@angular/core';
-import { ProfileService, ProfileData } from '../profile/profile.service';
+import { ProfileService } from '../profile/profile.service';
+import { PostService } from '../post/post.service';
 import { ErrorService } from '../error/error.service';
 import { CryptoService } from '../crypto/crypto.service';
 import { SESSION_KEY } from '../auth/auth.enum';
-
-export interface SignerInfo extends ProfileData {
-  account: string;
-  authenticatorData: string; // base64
-  clientData: string; // base64
-  signature: string; // base64
-  profileUrl: string;
-}
+import { ProfileData } from '../models/profile-data';
+import { SettingsData } from '../models/settings-data';
+import { SignerInfo } from '../models/signer-info';
+import { getProviderByUrl } from '../provider/provider.enum';
 
 @Injectable({ providedIn: 'root' })
 export class AuthService {
   private profileService = inject(ProfileService);
+  private postService = inject(PostService);
   private errorService = inject(ErrorService);
   private cryptoService = inject(CryptoService);
 
@@ -61,6 +59,10 @@ export class AuthService {
 
     const username = result.username ?? accountName;
 
+    const profile = this.profileService.getProfileData();
+    const providerUrl = profile?.provider ?? '';
+    const providerPrefix = getProviderByUrl(providerUrl)?.prefix ?? '';
+
     const signerInfo: SignerInfo = {
       username,
       account: accountName,
@@ -68,15 +70,11 @@ export class AuthService {
       authenticatorData: result.authenticatorData,
       clientData: result.clientData,
       signature: result.signature,
-      profileUrl: ''
+      providerPrefix,
     };
 
     if (await this.checkSigner(signerInfo)) {
-      const profile = this.profileService.getProfileData();
       signerInfo.publicKey = profile?.publicKey ?? '';
-      const encoded = btoa(JSON.stringify(signerInfo));
-      const base = `${location.origin}${location.pathname}#${encoded}`;
-      signerInfo.profileUrl = base;
       
       sessionStorage.setItem(SESSION_KEY, JSON.stringify(signerInfo));
       this.storedSigner.set(signerInfo);

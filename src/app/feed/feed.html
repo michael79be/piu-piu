@@ -18,10 +18,11 @@
 
     <section class="space-y-4">
       @for (post of posts(); track post.uuid) {
-        <article class="bg-white border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow">
+        <article id="post-{{ post.uuid }}" class="bg-white border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow cursor-pointer" (click)="navigateToPost(post)">
           <div class="text-gray-700 whitespace-pre-wrap mb-2">{{ post.content }}</div>
           <footer class="flex items-center justify-between pt-2 border-t border-gray-100">
             <div class="flex items-center gap-2 text-sm text-gray-700">
+              <img [src]="getAvatarUrl(post.senderAccount) || 'data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><circle cx=%2250%22 cy=%2250%22 r=%2240%22 fill=%22%23e0e0e0%22/></svg>'" alt="@{{ post.senderAccount }}" class="w-6 h-6 rounded-full bg-gray-100" onerror="this.style.display='none'" />
               <span class="font-medium">@{{ post.senderAccount }}</span>
               <span class="text-gray-400">·</span>
               <span class="text-xs text-gray-500 flex items-center gap-1">

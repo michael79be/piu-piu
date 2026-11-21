@@ -2,30 +2,25 @@ import { Injectable, signal, computed, inject, NgZone } from '@angular/core';
 import { TuiToastService } from '@taiga-ui/kit';
 import type { Room, PeerJoinContext, PeerLeaveContext } from '@trystero-p2p/core';
 import { SESSION_KEY } from '../auth/auth.enum';
-import { PostService, PostData } from '../post/post.service';
+import { PostService } from '../post/post.service';
+import { PostData } from '../models/post-data';
 import { CryptoService } from '../crypto/crypto.service';
 import { RsaPublicKeyService } from '../crypto/rsa-public-key.service';
+import { AuthService } from '../auth/auth.service';
 import { createWhoamiAction, type WhoamiAction } from './whoami';
 import { createPostAction, type PostAction } from './post';
 import { createRequestAction, type RequestAction } from './request';
 import { createProvideAction, type ProvideAction } from './provide';
+import { SignerInfo } from '../models/signer-info';
+import { WhoamiPayload } from '../models/whoami';
+import { ProfileService } from '../profile/profile.service';
+import { getProviderByUrl } from '../provider/provider.enum';
 
 export interface Peer {
   id: string;
   name: string;
   joinedAt: number;
   signerInfo?: SignerInfo;
-}
-
-export interface SignerInfo {
-  username: string;
-  account: string;
-  publicKey: string;
-  authenticatorData: string;
-  clientData: string;
-  signature: string;
-  profileUrl: string;
-  subscription?: string;
 }
 
 export interface RequestPayload {
@@ -48,7 +43,10 @@ export class RoomService {
   private postService = inject(PostService);
   private cryptoService = inject(CryptoService);
   private rsaPublicKeyService = inject(RsaPublicKeyService);
+  private authService = inject(AuthService);
   private zone = inject(NgZone);
+
+  private profileService = inject(ProfileService);
 
   private roomInstance = signal<Room | null>(null);
   private globalRoomInstance = signal<Room | null>(null);
@@ -108,7 +106,7 @@ export class RoomService {
         await this.zone.run(() => this.handleProvide(data));
       });
 
-      room.onPeerJoin((context: PeerJoinContext) => {
+      room.onPeerJoin(async (context: PeerJoinContext) => {
         const users = room.getUsers();
         const userInfo = users[context.userId];
         const peer: Peer = {
@@ -122,6 +120,8 @@ export class RoomService {
         });
         console.debug('[Room] peer joined:', context.peerId, 'userId:', context.userId);
         this.requestPosts(accountName);
+        const meta = await this.postService.getMeta(accountName);
+        console.debug('[Room] getMeta returned:', meta);
       });
 
       room.onPeerLeave((context: PeerLeaveContext) => {
@@ -160,19 +160,24 @@ export class RoomService {
       console.debug('[Room] joined global room:', GLOBAL_ROOM_NAME, 'selfId:', selfInfo.userId);
 
       this.globalWhoamiAction.init(room.makeAction('whoami'));
-      this.globalWhoamiAction.onMessage((data: SignerInfo, context: { peerId: string; userId: string }) => {
-        console.debug('[Room] global whoami received from:', context.peerId, 'signer:', data.username);
+      this.globalWhoamiAction.onMessage((data: WhoamiPayload, context: { peerId: string; userId: string }) => {
+        console.debug('[Room] global whoami received from:', context.peerId, 'account:', data.account);
         const peer = this.globalPeers().find(p => p.id === context.peerId);
         if (peer) {
           this.globalPeers.update(current =>
-            current.map(p => p.id === context.peerId ? { ...p, signerInfo: data } : p)
+            current.map(p => p.id === context.peerId ? { ...p, signerInfo: { ...p.signerInfo!, username: data.username, account: data.account, providerPrefix: data.providerPrefix, subscription: data.subscription } } : p)
           );
         } else {
           const newPeer: Peer = {
             id: context.peerId,
             name: data.username,
             joinedAt: Date.now(),
-            signerInfo: data,
+            signerInfo: {
+              username: data.username,
+              account: data.account,
+              providerPrefix: data.providerPrefix,
+              subscription: data.subscription,
+            } as any,
           };
           this.globalPeers.update(current => [...current, newPeer]);
         }
@@ -338,13 +343,21 @@ export class RoomService {
     }, 30000);
     this.pollingIntervals.push(beforeInterval);
 
+    // Poll for @ posts (settings, follow) every 60 seconds
+    const metaInterval = setInterval(async () => {
+      const meta = await this.postService.getMeta(accountName);
+      console.debug('[Room] Polled @ posts for:', accountName, 'count:', meta.length);
+      // Settings and follow data are already handled by their respective sync mechanisms
+    }, 60000);
+    this.pollingIntervals.push(metaInterval);
+
     // Initial request for older posts if we have any
     if (oldestUuid) {
       this.requestPosts(accountName, { before: oldestUuid });
     }
   }
 
-  private stopPolling(): void {
+private stopPolling(): void {
     for (const interval of this.pollingIntervals) {
       clearInterval(interval);
     }
@@ -373,11 +386,19 @@ export class RoomService {
           subscription = encrypted;
         }
       }
-      const signerWithSubscription: SignerInfo = {
-        ...signer,
+      
+      // Get provider prefix from profile
+      const profile = this.profileService.getProfileData();
+      const providerUrl = profile?.provider ?? '';
+      const providerPrefix = getProviderByUrl(providerUrl)?.prefix ?? '';
+
+      const payload: WhoamiPayload = {
+        username: signer.username,
+        account: signer.account,
+        providerPrefix,
         subscription,
       };
-      this.globalWhoamiAction.send(signerWithSubscription, peerId ? { target: peerId } : undefined);
+      this.globalWhoamiAction.send(payload, peerId ? { target: peerId } : undefined);
     } catch {
       // Not signed in, don't announce
     }
@@ -389,15 +410,25 @@ export class RoomService {
 
     try {
       const signer = JSON.parse(stored) as SignerInfo;
-      const signerWithSubscription: SignerInfo = {
-        ...signer,
+      const profile = this.profileService.getProfileData();
+      const providerUrl = profile?.provider ?? '';
+      const providerPrefix = getProviderByUrl(providerUrl)?.prefix ?? '';
+      
+      const payload: WhoamiPayload = {
+        username: signer.username,
+        account: signer.account,
+        providerPrefix,
         subscription: subscription || undefined,
       };
       // Update sessionStorage only if setting a subscription (not clearing)
       if (subscription) {
+        const signerWithSubscription: SignerInfo = {
+          ...signer,
+          subscription,
+        };
         sessionStorage.setItem(SESSION_KEY, JSON.stringify(signerWithSubscription));
       }
-      this.globalWhoamiAction.send(signerWithSubscription);
+      this.globalWhoamiAction.send(payload);
     } catch {
       // Not signed in, don't announce
     }

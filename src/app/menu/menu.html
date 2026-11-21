@@ -21,7 +21,11 @@
   <div [tuiDropdown]="content">
     <button tuiButton appearance="flat" tuiDropdownAuto tuiDropdownRole="menu" type="button" [tuiDropdown]="content" class="w-full justify-start"
     tuiHintDirection="end" tuiHint="@{{ displayName() }}">
-      <la-icon [icon]="['lar', 'user']" size="2x" class="max-sm:ms-[-0.25em]"></la-icon>
+      @if (avatarUrl()) {
+        <img [src]="avatarUrl()" alt="@{{ displayName() }}" onerror="this.style.display='none'" />
+      } @else {
+        <la-icon [icon]="['lar', 'user']" size="2x" class="max-sm:ms-[-0.25em]"></la-icon>
+      }
       <span class="max-sm:hidden">@{{ displayName() }}</span>
     </button>
   </div>

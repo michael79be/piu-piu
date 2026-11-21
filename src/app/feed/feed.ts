@@ -3,10 +3,13 @@ import { CommonModule } from '@angular/common';
 import { TuiDialogService } from '@taiga-ui/core';
 import { PolymorpheusComponent } from '@taiga-ui/polymorpheus';
 import { LaIconComponent, LaIconLibrary } from 'angular-line-awesome';
-import { lasClock, lasShieldAlt, lasList, lasSpinner, lasRss } from 'angular-line-awesome/icons';
+import { lasClock, lasShieldAlt, lasList, lasSpinner, lasRss, lasUser } from 'angular-line-awesome/icons';
 import { RoomService } from '../room/room.service';
 import { AuthService } from '../auth/auth.service';
-import { PostService, PostData, FollowData } from '../post/post.service';
+import { PostService } from '../post/post.service';
+import { PostData } from '../models/post-data';
+import { FollowData } from '../models/follow-data';
+import { SettingsData } from '../models/settings-data';
 import { PostDialogComponent } from '../post/post-dialog/post-dialog.component';
 import { CryptoService } from '../crypto/crypto.service';
 
@@ -28,6 +31,7 @@ export class Feed implements OnInit, OnDestroy {
 
   posts = signal<PostData[]>([]);
   loading = signal(false);
+  gravatarCache = new Map<string, string>();
 
   private handlePostsUpdated = (event: CustomEvent) => {
     const detail = event.detail;
@@ -92,6 +96,17 @@ export class Feed implements OnInit, OnDestroy {
       // Sort by timestamp descending (newest first)
       allPosts.sort((a, b) => b.timestamp - a.timestamp);
       this.posts.set(allPosts);
+
+      // Preload gravatar URLs for all unique sender accounts
+      const uniqueAccounts = [...new Set(allPosts.map(p => p.senderAccount))];
+      for (const account of uniqueAccounts) {
+        const settings = await this.postService.getSettings(account);
+        if (settings?.avatarUrl) {
+          this.gravatarCache.set(account, settings.avatarUrl);
+        } else {
+          this.gravatarCache.set(account, '');
+        }
+      }
     } catch (e) {
       console.error('Failed to load feed:', e);
       this.posts.set([]);
@@ -130,6 +145,21 @@ export class Feed implements OnInit, OnDestroy {
     if (hours < 24) return `${hours}h`;
     if (days < 7) return `${days}d`;
     return date.toLocaleDateString();
+  }
+
+  getAvatarUrl(senderAccount: string): string {
+    return this.gravatarCache.get(senderAccount) ?? '';
+  }
+
+  navigateToPost(post: PostData): void {
+    this.router.navigateByUrl(`/@${post.senderAccount}`).then(() => {
+      setTimeout(() => {
+        const element = document.getElementById(`post-${post.uuid}`);
+        if (element) {
+          element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+      }, 100);
+    });
   }
 }
 

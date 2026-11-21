@@ -1,28 +1,14 @@
 import type { MessageAction } from '@trystero-p2p/core';
-
-export interface SignerInfo {
-  username: string;
-  account: string;
-  publicKey: string;
-  authenticatorData: string;
-  clientData: string;
-  signature: string;
-  profileUrl: string;
-  subscription?: string;
-}
-
-export interface WhoamiPayload {
-  signerInfo: SignerInfo;
-}
+import { WhoamiPayload } from '../models/whoami';
 
 export interface WhoamiAction {
   action: MessageAction<WhoamiPayload> | null;
   
   init(action: MessageAction<WhoamiPayload>): void;
   
-  send(signerInfo: SignerInfo, options?: { target?: string }): void;
+  send(payload: WhoamiPayload, options?: { target?: string }): void;
   
-  onMessage(cb: (data: SignerInfo, context: { peerId: string; userId: string }) => void): void;
+  onMessage(cb: (data: WhoamiPayload, context: { peerId: string; userId: string }) => void): void;
 }
 
 export function createWhoamiAction(): WhoamiAction {
@@ -31,7 +17,7 @@ export function createWhoamiAction(): WhoamiAction {
   return {
     get action() { return action; },
     init(a: MessageAction<WhoamiPayload>) { action = a; },
-    send(signerInfo: SignerInfo, options?: { target?: string }) { action?.send({ signerInfo }, options); },
-    onMessage(cb: (data: SignerInfo, context: { peerId: string; userId: string }) => void) { action?.onMessage((d, c) => cb(d.signerInfo, c)); },
+    send(payload: WhoamiPayload, options?: { target?: string }) { action?.send(payload, options); },
+    onMessage(cb: (data: WhoamiPayload, context: { peerId: string; userId: string }) => void) { action?.onMessage(cb); },
   };
 }

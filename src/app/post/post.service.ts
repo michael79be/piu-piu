@@ -1,35 +1,11 @@
 import { Injectable, inject } from '@angular/core';
 import { openDB, DBSchema, IDBPDatabase } from 'idb';
-import { AuthService, SignerInfo } from '../auth/auth.service';
 import { CryptoService } from '../crypto/crypto.service';
-
-export interface PostData {
-  uuid: string;
-  sender: string;
-  senderAccount: string;
-  timestamp: number;
-  content: string;
-  publicKey: string; // base64
-  signature: string; // base64
-  authenticatorData: string; // base64
-  clientData: string; // base64
-}
-
-export interface FollowData {
-  follows: Record<string, string>; // accountName -> profileUrl
-  signature: string; // base64
-  authenticatorData: string; // base64
-  clientData: string; // base64
-}
-
-export interface SubscriptionData {
-  endpoint: string;
-  expirationTime: number | null;
-  keys: {
-    p256dh: string;
-    auth: string;
-  };
-}
+import { PostData } from '../models/post-data';
+import { FollowData } from '../models/follow-data';
+import { SubscriptionData } from '../models/subscription-data';
+import { SettingsData } from '../models/settings-data';
+import { SignerInfo } from '../models/signer-info';
 
 interface PostsDB extends DBSchema {
   posts: {
@@ -40,7 +16,6 @@ interface PostsDB extends DBSchema {
 
 @Injectable({ providedIn: 'root' })
 export class PostService {
-  private authService = inject(AuthService);
   private cryptoService = inject(CryptoService);
   private dbCache = new Map<string, Promise<IDBPDatabase<PostsDB>>>();
 
@@ -72,8 +47,7 @@ export class PostService {
     return `${post.uuid}:${post.senderAccount}:${post.timestamp}:${post.content}`;
   }
 
-  async createPost(accountName: string, content: string): Promise<PostData | null> {
-    const signer = this.authService.storedSigner();
+  async createPost(signer: SignerInfo, content: string): Promise<PostData | null> {
     if (!signer) return null;
 
     const uuid = crypto.randomUUID();
@@ -126,7 +100,7 @@ export class PostService {
         clientData: this.bytesToBase64(clientData),
       };
 
-      const db = await this.getDB(accountName);
+      const db = await this.getDB(signer.account);
       await db.put('posts', JSON.stringify(post), uuid);
 
       return post;
@@ -166,12 +140,46 @@ export class PostService {
     return posts.sort((a, b) => b.timestamp - a.timestamp);
   }
 
+  async getMeta(accountName: string): Promise<(SettingsData | FollowData | { avatarUrl: string; avatarService: string })[]> {
+    const db = await this.getDB(accountName);
+    const tx = db.transaction('posts', 'readonly');
+    const store = tx.objectStore('posts');
+    const allKeys = await store.getAllKeys();
+    const allValues = await store.getAll();
+    await tx.done;
+    
+    console.log('[getMeta] account:', accountName, 'allKeys:', allKeys.filter(k => typeof k === 'string' && k.startsWith('@')));
+    
+    const results: (SettingsData | FollowData | { avatarUrl: string; avatarService: string })[] = [];
+    for (let i = 0; i < allKeys.length; i++) {
+      const key = allKeys[i];
+      const value = allValues[i];
+      if (typeof key === 'string' && key.startsWith('@')) {
+        try {
+          const parsed = JSON.parse(value);
+          console.log('[getMeta] found @ key:', key, 'data:', parsed);
+          results.push(parsed);
+        } catch {
+          // Ignore parse errors
+        }
+      }
+    }
+    console.log('[getMeta] results:', results);
+    return results.sort((a, b) => {
+      const ta = 'timestamp' in a && typeof a.timestamp === 'number' ? a.timestamp : 0;
+      const tb = 'timestamp' in b && typeof b.timestamp === 'number' ? b.timestamp : 0;
+      return tb - ta;
+    });
+  }
+
   private deserializePost(post: Record<string, unknown>): PostData {
-    console.log('[deserializePost] raw post keys:', Object.keys(post));
-    console.log('[deserializePost] signature present:', !!post['signature']);
-    console.log('[deserializePost] authenticatorData present:', !!post['authenticatorData']);
-    console.log('[deserializePost] clientData present:', !!post['clientData']);
-    console.log('[deserializePost] publicKey present:', !!post['publicKey']);
+    console.log('[deserializePost]', {
+      keys: Object.keys(post),
+      hasSignature: !!post['signature'],
+      hasAuthenticatorData: !!post['authenticatorData'],
+      hasClientData: !!post['clientData'],
+      hasPublicKey: !!post['publicKey'],
+    });
     
     const result = {
       ...post,
@@ -181,10 +189,12 @@ export class PostService {
       publicKey: post['publicKey'] as string,
     } as PostData;
     
-    console.log('[deserializePost] result signature length:', result.signature?.length);
-    console.log('[deserializePost] result authenticatorData length:', result.authenticatorData?.length);
-    console.log('[deserializePost] result clientData length:', result.clientData?.length);
-    console.log('[deserializePost] result publicKey length:', result.publicKey?.length);
+    console.log('[deserializePost] result', {
+      signatureLength: result.signature?.length,
+      authenticatorDataLength: result.authenticatorData?.length,
+      clientDataLength: result.clientData?.length,
+      publicKeyLength: result.publicKey?.length,
+    });
     return result;
   }
 
@@ -242,6 +252,69 @@ export class PostService {
     } as unknown as PushSubscription;
   }
 
+  private createSettingsSigningString(avatarUrl: string, avatarService: string, pushEnabled: boolean): string {
+    return `${avatarUrl}|${avatarService}:${pushEnabled ? '1' : '0'}`;
+  }
+
+  private async hashSettingsChallenge(avatarUrl: string, avatarService: string, pushEnabled: boolean): Promise<Uint8Array> {
+    const signingString = this.createSettingsSigningString(avatarUrl, avatarService, pushEnabled);
+    const encoder = new TextEncoder();
+    const hash = await window.crypto.subtle.digest('SHA-256', encoder.encode(signingString));
+    return new Uint8Array(hash);
+  }
+
+  async saveSettings(signer: SignerInfo, avatarUrl: string, avatarService: 'gravatar' | 'libravatar', pushEnabled: boolean): Promise<SettingsData | null> {
+    if (!signer) return null;
+
+    const challenge = await this.hashSettingsChallenge(avatarUrl, avatarService, pushEnabled);
+
+    try {
+      const cred = await navigator.credentials.get({
+        publicKey: {
+          challenge: challenge as unknown as ArrayBuffer,
+          timeout: 60000,
+          userVerification: 'preferred'
+        }
+      }) as PublicKeyCredential;
+
+      const response = cred.response as AuthenticatorAssertionResponse;
+      const authData = response.authenticatorData ? new Uint8Array(response.authenticatorData) : new Uint8Array(0);
+      const clientData = response.clientDataJSON ? new Uint8Array(response.clientDataJSON) : new Uint8Array(0);
+      const signature = response.signature ? new Uint8Array(response.signature) : new Uint8Array(0);
+
+      let username = signer.username;
+      if (response.userHandle) {
+        const decoder = new TextDecoder('utf-8');
+        username = decoder.decode(response.userHandle) ?? signer.username;
+      }
+
+      const settingsData: SettingsData = {
+        avatarUrl,
+        avatarService,
+        pushEnabled,
+        signature: this.bytesToBase64(signature),
+        authenticatorData: this.bytesToBase64(authData),
+        clientData: this.bytesToBase64(clientData),
+      };
+
+      const db = await this.getDB(signer.account);
+      await db.put('posts', JSON.stringify(settingsData), '@settings');
+
+      return settingsData;
+    } catch (e) {
+      console.error('WebAuthn sign failed for settings:', e);
+      return null;
+    }
+  }
+
+  async getSettings(accountName: string): Promise<SettingsData | null> {
+    const db = await this.getDB(accountName);
+    const data = await db.get('posts', '@settings');
+    if (!data) return null;
+    const parsed = JSON.parse(data) as SettingsData;
+    return parsed;
+  }
+
   private createFollowSigningString(follows: Record<string, string>): string {
     const sortedKeys = Object.keys(follows).sort();
     return sortedKeys.map(k => `${k}:${follows[k]}`).join('|');
@@ -254,12 +327,11 @@ export class PostService {
     return new Uint8Array(hash);
   }
 
-  async saveFollow(accountName: string, targetAccount: string, targetProfileUrl: string): Promise<FollowData | null> {
-    const signer = this.authService.storedSigner();
+  async saveFollow(signer: SignerInfo, targetAccount: string, targetProfileUrl: string): Promise<FollowData | null> {
     if (!signer) return null;
 
     // Load existing follows
-    const existingFollows = await this.getFollow(accountName);
+    const existingFollows = await this.getFollow(signer.account);
     const follows = existingFollows ? { ...existingFollows.follows } : {};
     follows[targetAccount] = targetProfileUrl;
 
@@ -299,7 +371,7 @@ export class PostService {
         clientData: this.bytesToBase64(clientData),
       };
 
-      const db = await this.getDB(accountName);
+      const db = await this.getDB(signer.account);
       await db.put('posts', JSON.stringify(followData), '@follow');
 
       return followData;
@@ -309,11 +381,10 @@ export class PostService {
     }
   }
 
-  async unfollow(accountName: string, targetAccount: string): Promise<FollowData | null> {
-    const signer = this.authService.storedSigner();
+  async unfollow(signer: SignerInfo, targetAccount: string): Promise<FollowData | null> {
     if (!signer) return null;
 
-    const existingFollows = await this.getFollow(accountName);
+    const existingFollows = await this.getFollow(signer.account);
     if (!existingFollows) return null;
 
     const follows = { ...existingFollows.follows };
@@ -342,7 +413,7 @@ export class PostService {
         clientData: this.bytesToBase64(clientData),
       };
 
-      const db = await this.getDB(accountName);
+const db = await this.getDB(signer.account);
       if (Object.keys(follows).length === 0) {
         await db.delete('posts', '@follow');
       } else {

@@ -3,8 +3,11 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { TuiButton, TuiTextfield } from '@taiga-ui/core';
 import { POLYMORPHEUS_CONTEXT } from '@taiga-ui/polymorpheus';
-import { PostService, PostData } from '../../post/post.service';
+import { PostData } from '../../models/post-data';
+import { PostService } from '../../post/post.service';
 import { TuiTextarea } from '@taiga-ui/kit';
+import { AuthService } from '../../auth/auth.service';
+import { SignerInfo } from '../../models/signer-info';
 
 export interface PostDialogData {
   accountName: string;
@@ -23,6 +26,7 @@ export interface PostDialogContext {
 })
 export class PostDialogComponent {
   private postService = inject(PostService);
+  private authService = inject(AuthService);
   private context = inject(POLYMORPHEUS_CONTEXT) as PostDialogContext;
 
   content = signal('');
@@ -32,9 +36,12 @@ export class PostDialogComponent {
     const text = this.content().trim();
     if (!text || this.loading()) return;
 
+    const signer = this.authService.storedSigner();
+    if (!signer) return;
+
     this.loading.set(true);
     try {
-      const post = await this.postService.createPost(this.context.data.accountName, text);
+      const post = await this.postService.createPost(signer, text);
       this.context.completeWith(post);
     } finally {
       this.loading.set(false);

@@ -1,0 +1,80 @@
+<div class="p-4 space-y-4">
+  <div class="flex items-center justify-between">
+    <h2 class="text-lg font-semibold">Settings</h2>
+    <button tuiButton appearance="flat" size="s" (click)="onCancel()" tuiHint="Close">
+      <la-icon [icon]="['las', 'times']" size="2x"></la-icon>
+    </button>
+  </div>
+
+  <div class="space-y-3">
+    <div class="flex items-center gap-3">
+      <la-icon [icon]="['las', 'user']" class="text-gray-400 text-xl"></la-icon>
+      <div class="flex-1">
+        <label class="block text-sm font-medium text-gray-700">Avatar Service</label>
+        <tui-textfield tuiChevron>
+          <input
+            tuiInput
+            tuiSelect
+            placeholder="Select avatar service"
+            [(ngModel)]="avatarService"
+            [disabled]="loading()"
+          />
+          <tui-data-list-wrapper *tuiDropdown [items]="avatarServiceOptions"></tui-data-list-wrapper>
+        </tui-textfield>
+      </div>
+    </div>
+
+    <div class="flex items-center gap-3">
+      <la-icon [icon]="['las', 'envelope']" class="text-gray-400 text-xl"></la-icon>
+      <div class="flex-1">
+        <label class="block text-sm font-medium text-gray-700">Email</label>
+        <tui-textfield>
+          <input
+            tuiInput
+            type="email"
+            [(ngModel)]="email"
+            placeholder="Enter email for avatar"
+            class="w-full mt-1"
+            [disabled]="loading()"
+          />
+        </tui-textfield>
+        <p class="text-xs text-gray-500 mt-1">SHA-256 of trimmed lowercase email. Avatar hash will be generated automatically.</p>
+      </div>
+    </div>
+
+    @if (previewUrl() || currentAvatarUrl()) {
+      <div class="flex items-center gap-3 pl-8">
+        <img [src]="previewUrl() || currentAvatarUrl()" alt="Avatar preview" class="w-12 h-12 rounded-full bg-gray-100" onerror="this.style.display='none'" />
+        <span class="text-sm text-gray-600">Preview</span>
+      </div>
+    }
+
+    <div class="flex items-center justify-between py-2 border-t border-gray-100">
+      <div class="flex items-center gap-3">
+        <la-icon [icon]="['las', 'bell']" class="text-gray-400 text-xl"></la-icon>
+        <div>
+          <label class="block text-sm font-medium text-gray-700">Push Notifications</label>
+          <p class="text-xs text-gray-500">Receive notifications for new posts</p>
+        </div>
+      </div>
+      <input
+          tuiSwitch
+          type="checkbox"
+          [(ngModel)]="pushEnabled"
+          (ngModelChange)="onPushToggleChange($event)"
+          [disabled]="loading() || pushLoading()"
+        />
+    </div>
+  </div>
+
+  <div class="flex justify-end gap-2 pt-2 border-t border-gray-100">
+    <button tuiButton appearance="flat" size="m" (click)="onCancel()" [disabled]="loading()">Cancel</button>
+    <button tuiButton appearance="primary" size="m" *ngIf="loading()" disabled>
+      <la-icon [icon]="['las', 'spinner']" size="1x" class="animate-spin mr-1"></la-icon>
+      Saving...
+    </button>
+    <button tuiButton appearance="primary" size="m" *ngIf="!loading()" (click)="onSave()" [disabled]="loading()">
+      Save
+    </button>
+  </div>
+</div>

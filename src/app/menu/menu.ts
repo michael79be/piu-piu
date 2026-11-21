@@ -4,15 +4,19 @@ import { Router } from '@angular/router';
 import { TuiButton, TuiDropdown, TuiDataList, TuiHint, TuiDialogService } from '@taiga-ui/core';
 import { PolymorpheusComponent } from '@taiga-ui/polymorpheus';
 import { LaIconComponent, LaIconLibrary } from 'angular-line-awesome';
-import { lasEllipsisH, lasHome, larEdit, larUser, lasUsers, lasComment, lasPaperPlane, lasShieldAlt, lasUserSecret, lasUser, lasClock, lasBell, lasBellSlash, lasSpinner, lasUserPlus, lasRss, lasList, lasRss as lasRssIcon } from 'angular-line-awesome/icons';
+import { lasEllipsisH, lasHome, larEdit, larUser, lasUsers, lasComment, lasPaperPlane, lasShieldAlt, lasUserSecret, lasUser, lasClock, lasBell, lasBellSlash, lasSpinner, lasUserPlus, lasRss, lasList, lasCog, lasRss as lasRssIcon } from 'angular-line-awesome/icons';
 import { AuthService } from '../auth/auth.service';
-import { PostService, PostData } from '../post/post.service';
+import { PostService } from '../post/post.service';
+import { PostData } from '../models/post-data';
+import { SettingsData } from '../models/settings-data';
 import { RoomService } from '../room/room.service';
 import { ErrorService } from '../error/error.service';
 import { CryptoService } from '../crypto/crypto.service';
 import { RsaPublicKeyService } from '../crypto/rsa-public-key.service';
 import { VapidPublicKeyService } from '../crypto/vapid-public-key.service';
 import { PostDialogComponent } from '../post/post-dialog/post-dialog.component';
+import { SettingsDialogComponent } from '../settings/settings-dialog';
+import { SignerInfo } from '../models/signer-info';
 
 type MenuItem = {
   label: string;
@@ -47,12 +51,14 @@ export class Menu implements OnInit, OnDestroy {
   storedSigner = this.authService.storedSigner;
   displayName = this.authService.displayName;
 
-  pushSubscription = signal<PushSubscription | null>(null);
+pushSubscription = signal<PushSubscription | null>(null);
   pushSupported = signal(false);
   pushLoading = signal(false);
 
+  avatarUrl = signal<string | null>(null);
+
   constructor() {
-    this.library.addIcons([lasEllipsisH, lasHome, larEdit, larUser, lasUsers, lasComment, lasPaperPlane, lasShieldAlt, lasUserSecret, lasUser, lasClock, lasBell, lasBellSlash, lasSpinner, lasUserPlus, lasRss, lasList, lasRssIcon]);
+    this.library.addIcons([lasEllipsisH, lasHome, larEdit, larUser, lasUsers, lasComment, lasPaperPlane, lasShieldAlt, lasUserSecret, lasUser, lasClock, lasBell, lasBellSlash, lasSpinner, lasUserPlus, lasRss, lasList, lasCog, lasRssIcon]);
   }
 
   goHome(): void {
@@ -68,14 +74,27 @@ export class Menu implements OnInit, OnDestroy {
     if (this.pushSupported()) {
       this.loadPushSubscription();
     }
+    this.loadAvatar();
   }
 
   ngOnDestroy(): void {}
 
+  private async loadAvatar(): Promise<void> {
+    const accountName = this.storedSigner()?.account;
+    if (!accountName) return;
+
+    const settings = await this.postService.getSettings(accountName);
+    if (settings?.avatarUrl) {
+      this.avatarUrl.set(settings.avatarUrl);
+    }
+  }
+
   accountMenu = computed<MenuItem[]>(() => {
     if (this.isSignedIn()) {
+      const accountName = this.storedSigner()?.account;
       const items: MenuItem[] = [
-        { label: 'Profile', command: () => { } },
+        { label: 'Profile', command: () => accountName && this.router.navigateByUrl(`/@${accountName}`) },
+        { label: 'Settings', command: () => this.openSettingsDialog() },
       ];
 
       if (this.pushSupported()) {
@@ -137,6 +156,25 @@ export class Menu implements OnInit, OnDestroy {
       if (post) {
         await this.roomService.broadcastPost(post);
         window.dispatchEvent(new CustomEvent('piu-piu:load-posts', { detail: { accountName } }));
+      }
+    });
+  }
+
+  openSettingsDialog(): void {
+    this.dialogService.open(new PolymorpheusComponent(SettingsDialogComponent), {
+      size: 'm',
+      closable: true,
+      dismissible: true,
+    }).subscribe(async () => {
+      // Reload avatar and push status after dialog closes
+      this.loadAvatar();
+      const accountName = this.storedSigner()?.account;
+      if (accountName) {
+        const settings = await this.postService.getSettings(accountName);
+        if (settings) {
+          const subscription = await this.postService.getSubscription(accountName);
+          this.pushSubscription.set(settings.pushEnabled && subscription ? subscription : null);
+        }
       }
     });
   }
@@ -208,12 +246,18 @@ export class Menu implements OnInit, OnDestroy {
       return;
     }
 
-    const accountName = this.storedSigner()?.account;
-    if (!accountName) return;
+    const signer = this.storedSigner();
+    const accountName = signer?.account;
+    if (!signer || !accountName) return;
 
     this.pushLoading.set(true);
 
     try {
+      // Load current settings to preserve avatar
+      const currentSettings = await this.postService.getSettings(accountName);
+      const avatarUrl = currentSettings?.avatarUrl ?? '';
+      const avatarService = currentSettings?.avatarService ?? 'gravatar';
+
       if (this.pushSubscription()) {
         const registration = await navigator.serviceWorker.ready;
         const subscription = await registration.pushManager.getSubscription();
@@ -223,6 +267,8 @@ export class Menu implements OnInit, OnDestroy {
         await this.postService.saveSubscription(accountName, null);
         this.pushSubscription.set(null);
         this.roomService.updateWhoamiSubscription('');
+        // Update @settings with pushEnabled: false
+        await this.postService.saveSettings(signer, avatarUrl, avatarService, false);
         this.errorService.showSuccess('Push notifications disabled');
       } else {
         const registration = await navigator.serviceWorker.ready;
@@ -243,6 +289,9 @@ export class Menu implements OnInit, OnDestroy {
         await this.postService.saveSubscription(accountName, subscription);
         this.pushSubscription.set(subscription);
         this.roomService.updateWhoamiSubscription(encrypted);
+
+        // Update @settings with pushEnabled: true
+        await this.postService.saveSettings(signer, avatarUrl, avatarService, true);
 
         this.errorService.showSuccess('Push notifications enabled');
       }

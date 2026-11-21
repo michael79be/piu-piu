@@ -6,11 +6,13 @@ import { TuiButton, TuiDropdown, TuiDataList, TuiTextfield, TuiDialogService, Tu
 import { PolymorpheusComponent } from '@taiga-ui/polymorpheus';
 import { LaIconComponent, LaIconLibrary } from 'angular-line-awesome';
 import { lasArrowLeft, lasEllipsisH, lasHome, larEdit, larUser, lasUsers, lasComment, lasPaperPlane, lasShieldAlt, lasUserSecret, lasUser, lasClock, lasBell, lasBellSlash, lasSpinner, lasUserPlus, lasCheck } from 'angular-line-awesome/icons';
-import { ProfileData } from '../profile/profile.service';
+import { ProfileData } from '../models/profile-data';
 import { ErrorService } from '../error/error.service';
 import { RoomService } from '../room/room.service';
 import { AuthService } from '../auth/auth.service';
-import { PostService, PostData } from '../post/post.service';
+import { PostService } from '../post/post.service';
+import { PostData } from '../models/post-data';
+import { SettingsData } from '../models/settings-data';
 import { PostDialogComponent } from '../post/post-dialog/post-dialog.component';
 import { CryptoService } from '../crypto/crypto.service';
 import { RsaPublicKeyService } from '../crypto/rsa-public-key.service';
@@ -58,6 +60,8 @@ export class Account implements OnInit, OnDestroy {
   pushSupported = signal(false);
   pushLoading = signal(false);
 
+  avatarUrl = signal<string | null>(null);
+
   private handlePostsUpdated = (event: CustomEvent) => {
     const detail = event.detail;
     if (!detail?.accountName || detail.accountName === this.accountName()) {
@@ -67,6 +71,24 @@ export class Account implements OnInit, OnDestroy {
 
   constructor() {
     this.library.addIcons([lasArrowLeft, lasEllipsisH, lasHome, larEdit, larUser, lasUsers, lasComment, lasPaperPlane, lasShieldAlt, lasUserSecret, lasUser, lasClock, lasBell, lasBellSlash, lasSpinner, lasUserPlus, lasCheck]);
+  }
+
+  private async loadAvatar(): Promise<void> {
+    const accountName = this.accountName();
+    if (!accountName) return;
+
+    // First check global peers for this account's avatar (from @settings in whoami)
+    const peer = this.roomService.globalPeers().find(p => p.signerInfo?.account === accountName);
+    if (peer?.signerInfo?.avatarUrl) {
+      this.avatarUrl.set(peer.signerInfo.avatarUrl);
+      return;
+    }
+
+    // Fallback to @settings (for own account)
+    const settings = await this.postService.getSettings(accountName);
+    if (settings?.avatarUrl) {
+      this.avatarUrl.set(settings.avatarUrl);
+    }
   }
 
   ngOnInit(): void {
@@ -81,6 +103,7 @@ export class Account implements OnInit, OnDestroy {
 
     this.loadPosts();
     this.loadFollowStatus();
+    this.loadAvatar();
 
     // Join global room if already signed in (session restore)
     if (this.authService.isSignedIn()) {
@@ -108,6 +131,7 @@ export class Account implements OnInit, OnDestroy {
   }
 
   posts = signal<PostData[]>([]);
+  gravatarCache = new Map<string, string>();
 
   signerMatchesAccount = computed(() => {
     const signer = this.storedSigner();
@@ -173,6 +197,17 @@ export class Account implements OnInit, OnDestroy {
     const verifiedPosts = await this.postService.getVerifiedPosts(accountName);
     console.log('[Account.loadPosts] verifiedPosts count:', verifiedPosts.length);
     this.posts.set(verifiedPosts);
+
+    // Preload gravatar URLs for all unique sender accounts
+    const uniqueAccounts = [...new Set(verifiedPosts.map(p => p.senderAccount))];
+    for (const account of uniqueAccounts) {
+      const settings = await this.postService.getSettings(account);
+      if (settings?.avatarUrl) {
+        this.gravatarCache.set(account, settings.avatarUrl);
+      } else {
+        this.gravatarCache.set(account, '');
+      }
+    }
   }
 
   private async loadFollowStatus(): Promise<void> {
@@ -193,10 +228,10 @@ export class Account implements OnInit, OnDestroy {
   }
 
   async toggleFollow(): Promise<void> {
-    const viewerAccount = this.storedSigner()?.account;
+    const signer = this.authService.storedSigner();
     const targetAccount = this.accountName();
     const targetProfile = this.profileData();
-    if (!viewerAccount || !targetAccount || viewerAccount === targetAccount) return;
+    if (!signer || !targetAccount || signer.account === targetAccount) return;
     if (!targetProfile?.profileUrl) {
       this.errorService.showError('Cannot follow: profile URL not available');
       return;
@@ -205,7 +240,7 @@ export class Account implements OnInit, OnDestroy {
     this.followLoading.set(true);
     try {
       if (this.isFollowing()) {
-        const result = await this.postService.unfollow(viewerAccount, targetAccount);
+        const result = await this.postService.unfollow(signer, targetAccount);
         if (result) {
           this.isFollowing.set(false);
           this.errorService.showSuccess(`Unfollowed @${targetAccount}`);
@@ -213,7 +248,7 @@ export class Account implements OnInit, OnDestroy {
           this.errorService.showError('Failed to unfollow');
         }
       } else {
-        const result = await this.postService.saveFollow(viewerAccount, targetAccount, targetProfile.profileUrl);
+        const result = await this.postService.saveFollow(signer, targetAccount, targetProfile.profileUrl);
         if (result) {
           this.isFollowing.set(true);
           this.errorService.showSuccess(`You are now following @${targetAccount}`);
@@ -330,12 +365,18 @@ export class Account implements OnInit, OnDestroy {
       return;
     }
 
-    const accountName = this.accountName();
-    if (!accountName) return;
+    const signer = this.authService.storedSigner();
+    const accountName = signer?.account;
+    if (!signer || !accountName) return;
 
     this.pushLoading.set(true);
 
     try {
+      // Load current settings to preserve avatar
+      const currentSettings = await this.postService.getSettings(accountName);
+      const avatarUrl = currentSettings?.avatarUrl ?? '';
+      const avatarService = currentSettings?.avatarService ?? 'gravatar';
+
       if (this.pushSubscription()) {
         // Unsubscribe
         const registration = await navigator.serviceWorker.ready;
@@ -347,6 +388,8 @@ export class Account implements OnInit, OnDestroy {
         this.pushSubscription.set(null);
         // Update whoami to remove subscription
         this.roomService.updateWhoamiSubscription('');
+        // Update @settings with pushEnabled: false
+        await this.postService.saveSettings(signer, avatarUrl, avatarService, false);
         this.errorService.showSuccess('Push notifications disabled');
       } else {
         // Subscribe
@@ -372,6 +415,9 @@ export class Account implements OnInit, OnDestroy {
 
         // Update whoami in global room
         this.roomService.updateWhoamiSubscription(encrypted);
+
+        // Update @settings with pushEnabled: true
+        await this.postService.saveSettings(signer, avatarUrl, avatarService, true);
 
         this.errorService.showSuccess('Push notifications enabled');
       }
@@ -407,5 +453,9 @@ export class Account implements OnInit, OnDestroy {
     if (hours < 24) return `${hours}h`;
     if (days < 7) return `${days}d`;
     return date.toLocaleDateString();
+  }
+
+  getGravatarUrl(senderAccount: string): string {
+    return this.gravatarCache.get(senderAccount) ?? '';
   }
 }
