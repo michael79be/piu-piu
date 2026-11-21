@@ -46,6 +46,10 @@ function getAccountKey(entry) {
   return `${entry.username}|${entry.account}|${entry.profileUrl}`;
 }
 
+function getAccountKeyByAccount(entry) {
+  return entry.account;
+}
+
 function saveAccounts(accounts) {
   const dir = resolve(OUTPUT_PATH, '..');
   if (!existsSync(dir)) {
@@ -57,10 +61,21 @@ function saveAccounts(accounts) {
     .filter(entry => now - entry.lastSeen < MAX_AGE)
     .sort((a, b) => b.lastSeen - a.lastSeen);
 
+  // Failsafe: deduplicate by account name (should be unique per account)
+  const dedupedByAccount = new Map();
+  for (const entry of filtered) {
+    const accountKey = getAccountKeyByAccount(entry);
+    const existing = dedupedByAccount.get(accountKey);
+    if (!existing || entry.lastSeen > existing.lastSeen) {
+      dedupedByAccount.set(accountKey, entry);
+    }
+  }
+  const finalAccounts = Array.from(dedupedByAccount.values());
+
   const newData = {
     updatedAt: now,
-    count: filtered.length,
-    accounts: filtered,
+    count: finalAccounts.length,
+    accounts: finalAccounts,
   };
 
   if (existsSync(OUTPUT_PATH)) {
@@ -89,7 +104,7 @@ function saveAccounts(accounts) {
   }
 
   writeFileSync(OUTPUT_PATH, JSON.stringify(newData, null, 2));
-  console.log(`Saved ${filtered.length} accounts to ${OUTPUT_PATH}`);
+  console.log(`Saved ${finalAccounts.length} accounts to ${OUTPUT_PATH} (deduped from ${filtered.length})`);
 }
 
 async function joinRoomWithRetry() {
