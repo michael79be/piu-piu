@@ -118,9 +118,12 @@ self.addEventListener('push', (event) => {
 
 async function checkAccountSubscription(accountName) {
   try {
+    console.log('[SW] Checking subscription for account:', accountName);
     // Open the account's IndexedDB database
     const db = await openDB(accountName);
-    const subscription = await dbGet(db, 'subscription', '@subscription');
+    console.log('[SW] DB opened, object stores:', Array.from(db.objectStoreNames));
+    const data = await dbGet(db, 'posts', '@subscription');
+    console.log('[SW] Subscription data found:', !!data);
     return !!subscription;
   } catch (error) {
     console.error('[SW] Failed to check subscription:', error);
@@ -133,8 +136,8 @@ function openDB(name) {
     const request = indexedDB.open(name, 1);
     request.onupgradeneeded = () => {
       const db = request.result;
-      if (!db.objectStoreNames.contains('subscription')) {
-        db.createObjectStore('subscription');
+      if (!db.objectStoreNames.contains('posts')) {
+        db.createObjectStore('posts');
       }
     };
     request.onsuccess = () => resolve(request.result);

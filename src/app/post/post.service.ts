@@ -29,10 +29,6 @@ interface PostsDB extends DBSchema {
     key: string;
     value: string;
   };
-  subscription: {
-    key: string;
-    value: SubscriptionData;
-  };
 }
 
 @Injectable({ providedIn: 'root' })
@@ -149,8 +145,18 @@ export class PostService {
 
   async getAllPosts(accountName: string): Promise<PostData[]> {
     const db = await this.getDB(accountName);
-    const allData = await db.getAll('posts');
-    return allData.map(d => this.deserializePost(JSON.parse(d))).sort((a, b) => b.timestamp - a.timestamp);
+    const tx = db.transaction('posts', 'readonly');
+    const store = tx.objectStore('posts');
+    const allKeys = await store.getAllKeys();
+    const allValues = await store.getAll();
+    await tx.done;
+    
+    const posts: PostData[] = [];
+    for (let i = 0; i < allKeys.length; i++) {
+      if (typeof allKeys[i] === 'string' && allKeys[i].startsWith('@')) continue;
+      posts.push(this.deserializePost(JSON.parse(allValues[i])));
+    }
+    return posts.sort((a, b) => b.timestamp - a.timestamp);
   }
 
   private deserializePost(post: Record<string, unknown>): PostData {
@@ -191,16 +197,17 @@ export class PostService {
           auth: this.bytesToBase64(new Uint8Array(subscription.getKey('auth')!)),
         },
       };
-      await db.put('subscription', subData, '@subscription');
+      await db.put('posts', JSON.stringify(subData), '@subscription');
     } else {
-      await db.delete('subscription', '@subscription');
+      await db.delete('posts', '@subscription');
     }
   }
 
   async getSubscription(accountName: string): Promise<PushSubscription | null> {
     const db = await this.getDB(accountName);
-    const subData = await db.get('subscription', '@subscription');
-    if (!subData) return null;
+    const data = await db.get('posts', '@subscription');
+    if (!data) return null;
+    const subData = JSON.parse(data) as SubscriptionData;
     
     // Reconstruct PushSubscription from stored data
     const keys = {
