@@ -15,6 +15,13 @@ export interface PostData {
   clientData: string; // base64
 }
 
+export interface FollowData {
+  follows: Record<string, string>; // accountName -> profileUrl
+  signature: string; // base64
+  authenticatorData: string; // base64
+  clientData: string; // base64
+}
+
 export interface SubscriptionData {
   endpoint: string;
   expirationTime: number | null;
@@ -233,6 +240,193 @@ export class PostService {
         },
       }),
     } as unknown as PushSubscription;
+  }
+
+  private createFollowSigningString(follows: Record<string, string>): string {
+    const sortedKeys = Object.keys(follows).sort();
+    return sortedKeys.map(k => `${k}:${follows[k]}`).join('|');
+  }
+
+  private async hashFollowChallenge(follows: Record<string, string>): Promise<Uint8Array> {
+    const signingString = this.createFollowSigningString(follows);
+    const encoder = new TextEncoder();
+    const hash = await window.crypto.subtle.digest('SHA-256', encoder.encode(signingString));
+    return new Uint8Array(hash);
+  }
+
+  async saveFollow(accountName: string, targetAccount: string, targetProfileUrl: string): Promise<FollowData | null> {
+    const signer = this.authService.storedSigner();
+    if (!signer) return null;
+
+    // Load existing follows
+    const existingFollows = await this.getFollow(accountName);
+    const follows = existingFollows ? { ...existingFollows.follows } : {};
+    follows[targetAccount] = targetProfileUrl;
+
+    const challenge = await this.hashFollowChallenge(follows);
+
+    console.log('[saveFollow] signingString:', this.createFollowSigningString(follows));
+    console.log('[saveFollow] challenge length:', challenge.length);
+
+    try {
+      const cred = await navigator.credentials.get({
+        publicKey: {
+          challenge: challenge as unknown as ArrayBuffer,
+          timeout: 60000,
+          userVerification: 'preferred'
+        }
+      }) as PublicKeyCredential;
+
+      const response = cred.response as AuthenticatorAssertionResponse;
+      const authData = response.authenticatorData ? new Uint8Array(response.authenticatorData) : new Uint8Array(0);
+      const clientData = response.clientDataJSON ? new Uint8Array(response.clientDataJSON) : new Uint8Array(0);
+      const signature = response.signature ? new Uint8Array(response.signature) : new Uint8Array(0);
+
+      console.log('[saveFollow] authData length:', authData.length);
+      console.log('[saveFollow] clientData length:', clientData.length);
+      console.log('[saveFollow] signature length:', signature.length);
+
+      let username = signer.username;
+      if (response.userHandle) {
+        const decoder = new TextDecoder('utf-8');
+        username = decoder.decode(response.userHandle) ?? signer.username;
+      }
+
+      const followData: FollowData = {
+        follows,
+        signature: this.bytesToBase64(signature),
+        authenticatorData: this.bytesToBase64(authData),
+        clientData: this.bytesToBase64(clientData),
+      };
+
+      const db = await this.getDB(accountName);
+      await db.put('posts', JSON.stringify(followData), '@follow');
+
+      return followData;
+    } catch (e) {
+      console.error('WebAuthn sign failed for follow:', e);
+      return null;
+    }
+  }
+
+  async unfollow(accountName: string, targetAccount: string): Promise<FollowData | null> {
+    const signer = this.authService.storedSigner();
+    if (!signer) return null;
+
+    const existingFollows = await this.getFollow(accountName);
+    if (!existingFollows) return null;
+
+    const follows = { ...existingFollows.follows };
+    delete follows[targetAccount];
+
+    const challenge = await this.hashFollowChallenge(follows);
+
+    try {
+      const cred = await navigator.credentials.get({
+        publicKey: {
+          challenge: challenge as unknown as ArrayBuffer,
+          timeout: 60000,
+          userVerification: 'preferred'
+        }
+      }) as PublicKeyCredential;
+
+      const response = cred.response as AuthenticatorAssertionResponse;
+      const authData = response.authenticatorData ? new Uint8Array(response.authenticatorData) : new Uint8Array(0);
+      const clientData = response.clientDataJSON ? new Uint8Array(response.clientDataJSON) : new Uint8Array(0);
+      const signature = response.signature ? new Uint8Array(response.signature) : new Uint8Array(0);
+
+      const followData: FollowData = {
+        follows,
+        signature: this.bytesToBase64(signature),
+        authenticatorData: this.bytesToBase64(authData),
+        clientData: this.bytesToBase64(clientData),
+      };
+
+      const db = await this.getDB(accountName);
+      if (Object.keys(follows).length === 0) {
+        await db.delete('posts', '@follow');
+      } else {
+        await db.put('posts', JSON.stringify(followData), '@follow');
+      }
+
+      return followData;
+    } catch (e) {
+      console.error('WebAuthn sign failed for unfollow:', e);
+      return null;
+    }
+  }
+
+  async getFollow(accountName: string): Promise<FollowData | null> {
+    const db = await this.getDB(accountName);
+    const data = await db.get('posts', '@follow');
+    if (!data) return null;
+    return JSON.parse(data) as FollowData;
+  }
+
+  async verifyFollow(followData: FollowData, publicKey: string): Promise<boolean> {
+    if (!followData.signature || followData.signature.length === 0) return false;
+
+    const follows = followData.follows;
+    const expectedChallenge = await this.hashFollowChallenge(follows);
+
+    try {
+      const clientDataBytes = this.base64ToBytes(followData.clientData);
+      const authDataBytes = this.base64ToBytes(followData.authenticatorData);
+      const signatureBytes = this.base64ToBytes(followData.signature);
+      const publicKeyBytes = this.base64ToBytes(publicKey);
+
+      const clientDataHash = new Uint8Array(
+        await window.crypto.subtle.digest('SHA-256', clientDataBytes as BufferSource)
+      );
+
+      const signedData = new Uint8Array(authDataBytes.length + clientDataHash.length);
+      signedData.set(authDataBytes, 0);
+      signedData.set(clientDataHash, authDataBytes.length);
+
+      // Verify the challenge in clientData matches our expected challenge
+      const clientDataJson = new TextDecoder().decode(clientDataBytes);
+      let actualChallenge: Uint8Array | null = null;
+      try {
+        const parsed = JSON.parse(clientDataJson);
+        if (parsed.challenge) {
+          actualChallenge = this.base64UrlToBytes(parsed.challenge);
+        }
+      } catch (e) {
+        console.error('[verifyFollow] Failed to parse clientDataJSON:', e);
+      }
+
+      console.log('[verifyFollow] follows:', JSON.stringify(follows));
+      console.log('[verifyFollow] expectedChallenge length:', expectedChallenge.length);
+      console.log('[verifyFollow] actualChallenge length:', actualChallenge?.length);
+      console.log('[verifyFollow] challenge match:', actualChallenge ? this.bytesEqual(expectedChallenge, actualChallenge) : 'no challenge in clientData');
+
+      if (!actualChallenge || !this.bytesEqual(expectedChallenge, actualChallenge)) {
+        console.error('[verifyFollow] Challenge mismatch!');
+        return false;
+      }
+
+      const publicKeyBase64 = this.bytesToBase64(publicKeyBytes);
+      const cryptoKey = await this.cryptoService.importPublicKey(publicKeyBase64);
+      const rawSignature = this.cryptoService.derToRawSignature(signatureBytes);
+
+      return await window.crypto.subtle.verify(
+        { name: 'ECDSA', hash: { name: 'SHA-256' } },
+        cryptoKey,
+        rawSignature as BufferSource,
+        signedData as BufferSource
+      );
+    } catch (e) {
+      console.error('Follow verification failed:', e);
+      return false;
+    }
+  }
+
+  async isFollowing(accountName: string, targetAccount: string, publicKey: string): Promise<boolean> {
+    const followData = await this.getFollow(accountName);
+    if (!followData) return false;
+    const isValid = await this.verifyFollow(followData, publicKey);
+    if (!isValid) return false;
+    return targetAccount in followData.follows;
   }
 
   async verifyPost(post: PostData): Promise<boolean> {

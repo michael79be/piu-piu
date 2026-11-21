@@ -5,7 +5,7 @@ import { ActivatedRoute, Router } from '@angular/router';
 import { TuiButton, TuiDropdown, TuiDataList, TuiTextfield, TuiDialogService, TuiHint } from '@taiga-ui/core';
 import { PolymorpheusComponent } from '@taiga-ui/polymorpheus';
 import { LaIconComponent, LaIconLibrary } from 'angular-line-awesome';
-import { lasArrowLeft, lasEllipsisH, lasHome, larEdit, larUser, lasUsers, lasComment, lasPaperPlane, lasShieldAlt, lasUserSecret, lasUser, lasClock, lasBell, lasBellSlash } from 'angular-line-awesome/icons';
+import { lasArrowLeft, lasEllipsisH, lasHome, larEdit, larUser, lasUsers, lasComment, lasPaperPlane, lasShieldAlt, lasUserSecret, lasUser, lasClock, lasBell, lasBellSlash, lasSpinner, lasUserPlus, lasCheck } from 'angular-line-awesome/icons';
 import { ProfileData } from '../profile/profile.service';
 import { ErrorService } from '../error/error.service';
 import { RoomService } from '../room/room.service';
@@ -66,7 +66,7 @@ export class Account implements OnInit, OnDestroy {
   };
 
   constructor() {
-    this.library.addIcons([lasArrowLeft, lasEllipsisH, lasHome, larEdit, larUser, lasUsers, lasComment, lasPaperPlane, lasShieldAlt, lasUserSecret, lasUser, lasClock, lasBell, lasBellSlash]);
+    this.library.addIcons([lasArrowLeft, lasEllipsisH, lasHome, larEdit, larUser, lasUsers, lasComment, lasPaperPlane, lasShieldAlt, lasUserSecret, lasUser, lasClock, lasBell, lasBellSlash, lasSpinner, lasUserPlus, lasCheck]);
   }
 
   ngOnInit(): void {
@@ -80,6 +80,7 @@ export class Account implements OnInit, OnDestroy {
     }
 
     this.loadPosts();
+    this.loadFollowStatus();
 
     // Join global room if already signed in (session restore)
     if (this.authService.isSignedIn()) {
@@ -115,6 +116,9 @@ export class Account implements OnInit, OnDestroy {
   });
 
   canPost = computed(() => this.isSignedIn() && this.signerMatchesAccount());
+
+  isFollowing = signal(false);
+  followLoading = signal(false);
 
   accountMenu = computed<MenuItem[]>(() => {
     if (this.isSignedIn()) {
@@ -169,6 +173,60 @@ export class Account implements OnInit, OnDestroy {
     const verifiedPosts = await this.postService.getVerifiedPosts(accountName);
     console.log('[Account.loadPosts] verifiedPosts count:', verifiedPosts.length);
     this.posts.set(verifiedPosts);
+  }
+
+  private async loadFollowStatus(): Promise<void> {
+    const viewerAccount = this.storedSigner()?.account;
+    const viewerPublicKey = this.storedSigner()?.publicKey;
+    const targetAccount = this.accountName();
+    if (!viewerAccount || !targetAccount || viewerAccount === targetAccount || !viewerPublicKey) {
+      this.isFollowing.set(false);
+      return;
+    }
+    try {
+      const following = await this.postService.isFollowing(viewerAccount, targetAccount, viewerPublicKey);
+      this.isFollowing.set(following);
+    } catch (e) {
+      console.error('Failed to load follow status:', e);
+      this.isFollowing.set(false);
+    }
+  }
+
+  async toggleFollow(): Promise<void> {
+    const viewerAccount = this.storedSigner()?.account;
+    const targetAccount = this.accountName();
+    const targetProfile = this.profileData();
+    if (!viewerAccount || !targetAccount || viewerAccount === targetAccount) return;
+    if (!targetProfile?.profileUrl) {
+      this.errorService.showError('Cannot follow: profile URL not available');
+      return;
+    }
+
+    this.followLoading.set(true);
+    try {
+      if (this.isFollowing()) {
+        const result = await this.postService.unfollow(viewerAccount, targetAccount);
+        if (result) {
+          this.isFollowing.set(false);
+          this.errorService.showSuccess(`Unfollowed @${targetAccount}`);
+        } else {
+          this.errorService.showError('Failed to unfollow');
+        }
+      } else {
+        const result = await this.postService.saveFollow(viewerAccount, targetAccount, targetProfile.profileUrl);
+        if (result) {
+          this.isFollowing.set(true);
+          this.errorService.showSuccess(`You are now following @${targetAccount}`);
+        } else {
+          this.errorService.showError('Failed to follow');
+        }
+      }
+    } catch (e) {
+      console.error('Follow toggle failed:', e);
+      this.errorService.showError('Failed to toggle follow');
+    } finally {
+      this.followLoading.set(false);
+    }
   }
 
   onHome(): void {

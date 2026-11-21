@@ -96,7 +96,7 @@ async function joinRoomWithRetry() {
   let lastError;
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
     console.log(`Connecting to ${APP_ID}/${ROOM_NAME} (attempt ${attempt}/${MAX_RETRIES})...`);
-    const room = joinRoom(
+const room = joinRoom(
       { appId: APP_ID, rtcPolyfill: RTCPeerConnection, rtcConfig: TURN_CONFIG },
       ROOM_NAME
     );

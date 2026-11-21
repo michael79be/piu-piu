@@ -11,6 +11,7 @@ export type ProfileData = {
   publicKey: string;
   provider?: string;
   accountName?: string;
+  profileUrl?: string;
 }
 
 @Injectable({ providedIn: 'root' })
@@ -58,7 +59,9 @@ export class ProfileResolver implements Resolve<ProfileData | null> {
         return null;
       }
       const decoded = JSON.parse(atob(encoded));
-      const data = { ...decoded, provider: provider.prefix, accountName };
+      // The short URL is the one we looked up - construct it from provider
+      const shortUrl = `${provider.url}/${accountName}`;
+      const data = { ...decoded, provider: provider.prefix, accountName, profileUrl: shortUrl };
       this.profileService.setProfileData(data);
       return data;
     } catch (e: any) {

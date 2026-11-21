@@ -5,6 +5,7 @@ export type ProfileData = {
   publicKey: string; // base64
   provider?: string;
   accountName?: string;
+  profileUrl?: string;
 }
 
 @Injectable({ providedIn: 'root' })
