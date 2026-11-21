@@ -115,7 +115,7 @@ function saveAccounts(accounts) {
   }
 
   writeFileSync(OUTPUT_PATH, JSON.stringify(newData, null, 2));
-  console.log(`Saved ${sorted.length} accounts to ${OUTPUT_PATH}`);
+  console.log(`Saved ${filtered.length} accounts to ${OUTPUT_PATH}`);
 }
 
 async function main() {
@@ -133,6 +133,7 @@ async function main() {
   const accounts = await loadExistingAccounts();
   let collected = 0;
   let peerJoins = 0;
+  let errorCount = 0;
 
   whoamiAction.onMessage((data, context) => {
     collected++;
@@ -168,6 +169,7 @@ async function main() {
   });
 
   room.onError((error) => {
+    errorCount++;
     console.error(`[error]`, error);
   });
 
@@ -194,7 +196,12 @@ async function main() {
   await new Promise(resolve => setTimeout(resolve, COLLECTION_TIME));
 
   room.leave();
-  console.log(`Collection complete. Total unique accounts: ${accounts.size} (${collected} whoami, ${peerJoins} peer joins)`);
+  console.log(`Collection complete. Total unique accounts: ${accounts.size} (${collected} whoami, ${peerJoins} peer joins, ${errorCount} errors)`);
+
+  if (errorCount > 0) {
+    console.error(`Collection had ${errorCount} peer connection errors`);
+    process.exit(1);
+  }
 
   if (accounts.size === 0) {
     console.error('No accounts collected - peer connection failures');
