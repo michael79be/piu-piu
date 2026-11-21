@@ -196,25 +196,78 @@ export class Account implements OnInit, OnDestroy {
   }
 
   signOut(): void {
+    const accountName = this.accountName();
+    if (accountName) {
+      // Clear push subscription
+      localStorage.removeItem(`${accountName}-subscription`);
+      this.pushSubscription.set(null);
+      // Update whoami to remove subscription
+      this.roomService.updateWhoamiSubscription('');
+    }
     this.authService.signOut();
     this.roomService.leaveRoom();
     this.roomService.leaveGlobalRoom();
   }
 
-  private loadPushSubscription(): void {
+  private async loadPushSubscription(): Promise<void> {
     const accountName = this.accountName();
     if (!accountName) return;
 
-    const stored = localStorage.getItem(`${accountName}-subscription`);
-    if (stored) {
-      try {
-        const subscriptionData = JSON.parse(stored);
-        this.pushSubscription.set(subscriptionData);
-      } catch {
-        // Invalid stored data
+    try {
+      const registration = await navigator.serviceWorker.ready;
+      const subscription = await registration.pushManager.getSubscription();
+      
+      if (subscription) {
+        // Active subscription exists in browser
+        this.pushSubscription.set(subscription);
+        // Also load encrypted version for whoami updates
+        const stored = localStorage.getItem(`${accountName}-subscription`);
+        if (stored) {
+          this.encryptedSubscription = stored;
+        }
+      } else {
+        // No active subscription - check if we have encrypted data
+        const stored = localStorage.getItem(`${accountName}-subscription`);
+        if (stored) {
+          this.encryptedSubscription = stored;
+          // Re-subscribe to restore the subscription (browser returns existing if valid)
+          await this.resubscribe(accountName);
+        }
       }
+    } catch {
+      // Ignore errors
     }
   }
+
+  private async resubscribe(accountName: string): Promise<void> {
+    try {
+      const vapidPublicKey = await this.vapidPublicKeyService.getPublicKey();
+      const applicationServerKey = this.urlBase64ToUint8Array(vapidPublicKey) as unknown as BufferSource;
+      const registration = await navigator.serviceWorker.ready;
+      
+      // Browser will return existing subscription if still valid (same endpoint, same VAPID key)
+      const subscription = await registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey,
+      });
+      
+      this.pushSubscription.set(subscription);
+      // Re-encrypt and save new subscription
+      const rsaPublicKey = await this.rsaPublicKeyService.getPublicKey();
+      const newEncrypted = await this.cryptoService.rsaEncrypt(JSON.stringify(subscription), rsaPublicKey);
+      if (newEncrypted) {
+        localStorage.setItem(`${accountName}-subscription`, newEncrypted);
+        this.encryptedSubscription = newEncrypted;
+        this.roomService.updateWhoamiSubscription(newEncrypted);
+      }
+    } catch {
+      // Failed to restore, clear invalid data
+      localStorage.removeItem(`${accountName}-subscription`);
+      this.encryptedSubscription = null;
+    }
+  }
+
+  private encryptedSubscription: string | null = null;
 
   async togglePushNotifications(): Promise<void> {
     if (!this.pushSupported()) {
@@ -237,6 +290,9 @@ export class Account implements OnInit, OnDestroy {
         }
         localStorage.removeItem(`${accountName}-subscription`);
         this.pushSubscription.set(null);
+        this.encryptedSubscription = null;
+        // Update whoami to remove subscription
+        this.roomService.updateWhoamiSubscription('');
         this.errorService.showSuccess('Push notifications disabled');
       } else {
         // Subscribe
@@ -258,6 +314,7 @@ export class Account implements OnInit, OnDestroy {
 
         // Save encrypted subscription to localStorage
         localStorage.setItem(`${accountName}-subscription`, encrypted);
+        this.encryptedSubscription = encrypted;
         this.pushSubscription.set(subscription);
 
         // Update whoami in global room

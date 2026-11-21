@@ -6,6 +6,7 @@ import { RTCPeerConnection } from 'werift';
 const APP_ID = 'piu-piu';
 const ROOM_NAME = 'piu-piu';
 const CONNECT_TIMEOUT = 30000; // 30 seconds to connect
+const MAX_AGE = 24 * 60 * 60 * 1000; // 24 hours
 
 // TURN servers for better WebRTC connectivity
 const TURN_CONFIG = {
@@ -76,11 +77,15 @@ function saveAccounts(accounts) {
     mkdirSync(dir, { recursive: true });
   }
 
-  const sorted = Array.from(accounts.values()).sort((a, b) => b.lastSeen - a.lastSeen);
+  const now = Date.now();
+  const filtered = Array.from(accounts.values())
+    .filter(entry => now - entry.lastSeen < MAX_AGE)
+    .sort((a, b) => b.lastSeen - a.lastSeen);
+
   const newData = {
-    updatedAt: Date.now(),
-    count: sorted.length,
-    accounts: sorted,
+    updatedAt: now,
+    count: filtered.length,
+    accounts: filtered,
   };
 
   // Check if accounts content changed (ignore updatedAt and lastSeen)

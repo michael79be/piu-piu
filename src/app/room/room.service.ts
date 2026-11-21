@@ -391,10 +391,12 @@ export class RoomService {
       const signer = JSON.parse(stored) as SignerInfo;
       const signerWithSubscription: SignerInfo = {
         ...signer,
-        subscription,
+        subscription: subscription || undefined,
       };
-      // Update sessionStorage so future announcements preserve the PushSubscription
-      sessionStorage.setItem(SESSION_KEY, JSON.stringify(signerWithSubscription));
+      // Update sessionStorage only if setting a subscription (not clearing)
+      if (subscription) {
+        sessionStorage.setItem(SESSION_KEY, JSON.stringify(signerWithSubscription));
+      }
       this.globalWhoamiAction.send(signerWithSubscription);
     } catch {
       // Not signed in, don't announce
