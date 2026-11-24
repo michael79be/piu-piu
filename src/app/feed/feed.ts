@@ -91,7 +91,7 @@ export class Feed implements OnInit, OnDestroy {
         return;
       }
 
-      const followedAccounts = Object.keys(followData.follows);
+      const followedAccounts = followData.follows.map(f => f.accountName);
       this.followedAccounts.set(followedAccounts);
       if (followedAccounts.length === 0) {
         this.posts.set([]);

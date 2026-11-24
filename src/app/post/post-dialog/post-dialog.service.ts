@@ -2,7 +2,6 @@ import { Injectable, inject } from '@angular/core';
 import { TuiDialogService } from '@taiga-ui/core';
 import { PolymorpheusComponent } from '@taiga-ui/polymorpheus';
 import { Router } from '@angular/router';
-import { PostDialogComponent } from './post-dialog.component';
 import { RoomService } from '../../room/room.service';
 import { AuthService } from '../../auth/auth.service';
 import { MessageData } from '../../models/post-data';
@@ -23,6 +22,8 @@ export class PostDialogService {
     if (!signerMatchesAccount) {
       await this.router.navigateByUrl(`/@${accountName}`);
     }
+
+    const { PostDialogComponent } = await import('./post-dialog.component');
 
     this.dialogService.open<MessageData>(new PolymorpheusComponent(PostDialogComponent), {
       size: 'm',

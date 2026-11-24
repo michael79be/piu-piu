@@ -1,7 +1,7 @@
 import { Injectable, inject } from '@angular/core';
 import { openDB, DBSchema, IDBPDatabase } from 'idb';
 import { CryptoService } from '../crypto/crypto.service';
-import { MessageData, SettingsData, FollowData, MetaData, Signed } from '../models/post-data';
+import { MessageData, SettingsData, FollowData, MetaData, Signed, Followed } from '../models/post-data';
 import { SubscriptionData } from '../models/subscription-data';
 import { SignerInfo } from '../models/signer-info';
 import { v7 as uuidv7 } from 'uuid';
@@ -301,12 +301,12 @@ export class PostService {
     return parsed;
   }
 
-  private createFollowSigningString(follows: Record<string, string>): string {
-    const sortedKeys = Object.keys(follows ?? {}).sort();
-    return sortedKeys.map(k => `${k}:${follows[k]}`).join('|');
+  private createFollowSigningString(follows: Followed[]): string {
+    const sorted = [...follows].sort((a, b) => a.accountName.localeCompare(b.accountName));
+    return sorted.map(f => `${f.accountName}:${f.profileUrl}`).join('|');
   }
 
-  private async hashFollowChallenge(follows: Record<string, string>): Promise<Uint8Array> {
+  private async hashFollowChallenge(follows: Followed[]): Promise<Uint8Array> {
     const signingString = this.createFollowSigningString(follows);
     const encoder = new TextEncoder();
     const hash = await window.crypto.subtle.digest('SHA-256', encoder.encode(signingString));
@@ -318,8 +318,14 @@ export class PostService {
 
     // Load existing follows
     const existingFollows = await this.getFollow(signer.account);
-    const follows = existingFollows ? { ...existingFollows.follows } : {};
-    follows[targetAccount] = targetProfileUrl;
+    const follows = existingFollows ? [...existingFollows.follows] : [];
+    // Check if already following
+    const existingIndex = follows.findIndex(f => f.accountName === targetAccount);
+    if (existingIndex >= 0) {
+      follows[existingIndex] = { accountName: targetAccount, profileUrl: targetProfileUrl };
+    } else {
+      follows.push({ accountName: targetAccount, profileUrl: targetProfileUrl });
+    }
 
     const challenge = await this.hashFollowChallenge(follows);
 
@@ -368,8 +374,7 @@ export class PostService {
     const existingFollows = await this.getFollow(signer.account);
     if (!existingFollows) return null;
 
-    const follows = { ...existingFollows.follows };
-    delete follows[targetAccount];
+    const follows = existingFollows.follows.filter(f => f.accountName !== targetAccount);
 
     const challenge = await this.hashFollowChallenge(follows);
 
@@ -415,17 +420,42 @@ export class PostService {
     const data = await db.get('posts', '@follow');
     if (!data) return null;
     const parsed = JSON.parse(data) as FollowData;
+    
+    // Migration: convert old Record<string, string> format to new Followed[] format
+    if (parsed.follows && !Array.isArray(parsed.follows)) {
+      const oldFollows = parsed.follows as Record<string, string>;
+      parsed.follows = Object.entries(oldFollows).map(([accountName, profileUrl]) => ({
+        accountName,
+        profileUrl,
+      }));
+    }
+    
     // Return null if follows is empty (corrupted data)
-    if (!parsed.follows || Object.keys(parsed.follows).length === 0) return null;
+    if (!parsed.follows || parsed.follows.length === 0) return null;
+
+    // Populate lastId from latest post in each followed account's database
+    for (const f of parsed.follows) {
+      if (!f.lastId) {
+        try {
+          const targetDb = await this.getDB(f.accountName);
+          const targetPosts = await this.getAllPostsWithFullData(f.accountName);
+          if (targetPosts.length > 0) {
+            f.lastId = targetPosts[0].uuid; // newest post
+          }
+        } catch {
+          // Ignore errors - target account may not exist locally
+        }
+      }
+    }
+
     return parsed;
   }
 
   async verifyFollow(followData: FollowData, publicKey: string): Promise<boolean> {
     if (!followData.signature || followData.signature.length === 0) return false;
 
-    const follows = followData.follows ?? {};
-    const keys = Object.keys(follows);
-    if (keys.length === 0) return false; // No follows to verify
+    const follows = followData.follows ?? [];
+    if (follows.length === 0) return false; // No follows to verify
 
     const expectedChallenge = await this.hashFollowChallenge(follows);
 
@@ -480,7 +510,22 @@ export class PostService {
     if (!followData) return false;
     const isValid = await this.verifyFollow(followData, publicKey);
     if (!isValid) return false;
-    return targetAccount in followData.follows;
+    return followData.follows.some(f => f.accountName === targetAccount);
+  }
+
+  async updateFollowLastId(accountName: string, targetAccount: string, lastId: string): Promise<void> {
+    const followData = await this.getFollow(accountName);
+    if (!followData) return;
+    
+    // Update lastId only for the specific followed account, if undefined or newer
+    const followed = followData.follows.find(f => f.accountName === targetAccount);
+    if (!followed) return;
+    if (followed.lastId && followed.lastId >= lastId) return; // Already up to date or newer
+    
+    followed.lastId = lastId;
+    
+    const db = await this.getDB(accountName);
+    await db.put('posts', JSON.stringify(followData), '@follow');
   }
 
   async verifyPost(post: MessageData): Promise<boolean> {

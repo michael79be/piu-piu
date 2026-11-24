@@ -31,6 +31,12 @@ export interface SettingsData extends PostData {
   }
 }
 
+export interface Followed {
+  accountName: string;
+  profileUrl: string;
+  lastId?: string; // UUID of the last synced post (newest post known to follower)
+}
+
 export interface FollowData extends PostData {
-  follows: Record<string, string>;
+  follows: Followed[];
 }

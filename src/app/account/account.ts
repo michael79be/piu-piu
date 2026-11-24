@@ -6,7 +6,8 @@ import { filter } from 'rxjs/operators';
 import { TuiButton, TuiDropdown, TuiDataList, TuiTextfield, TuiHint } from '@taiga-ui/core';
 import { LaIconComponent, LaIconLibrary } from 'angular-line-awesome';
 import { lasArrowLeft, lasEllipsisH, lasHome, larEdit, larUser, lasUsers, lasComment, lasPaperPlane, lasShieldAlt, lasUserSecret, lasUser, lasClock, lasBell, lasBellSlash, lasSpinner, lasUserPlus, lasCheck } from 'angular-line-awesome/icons';
-import { ProfileData } from '../models/profile-data';
+import { ProfileData } from '../profile/profile.resolver';
+import { ProfileService } from '../profile/profile.service';
 import { ErrorService } from '../error/error.service';
 import { RoomService } from '../room/room.service';
 import { AuthService } from '../auth/auth.service';
@@ -35,6 +36,7 @@ export class Account implements OnInit, OnDestroy {
   private errorService = inject(ErrorService);
   private roomService = inject(RoomService);
   private authService = inject(AuthService);
+  private profileService = inject(ProfileService);
   private postService = inject(PostService);
   private postDialogService = inject(PostDialogService);
   private cryptoService = inject(CryptoService);
@@ -124,6 +126,13 @@ export class Account implements OnInit, OnDestroy {
   private loadAccountFromRoute(): void {
     const routeAccountName = this.route.snapshot.paramMap.get('accountName');
     const providerParam = this.route.snapshot.paramMap.get('provider');
+    
+    // Get resolved profile data from route resolver
+    const resolvedProfile = this.route.snapshot.data['profileData'] as ProfileData | undefined;
+    if (resolvedProfile) {
+      this.profileService.setProfileData(resolvedProfile);
+      this.profileData.set(resolvedProfile);
+    }
     const profile = this.profileData();
     
     // Construct full account name with provider suffix
@@ -135,7 +144,7 @@ export class Account implements OnInit, OnDestroy {
     this.updateTitle(accountName);
 
     if (this.accountName()) {
-      this.roomService.joinRoom(this.accountName()!);
+      this.roomService.joinRoom(this.accountName()!).catch(err => console.error('Failed to join room:', err));
     }
 
     this.loadPosts();

@@ -42,6 +42,6 @@ __screenshots__/
 
 /ssl/
 /provider/
-accounts/test.json
+accounts/test*.*
 private.pem
 vapid-private.key

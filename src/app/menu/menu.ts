@@ -2,8 +2,7 @@ import { Component, computed, inject, input, OnInit, OnDestroy, signal } from '@
 import { CommonModule } from '@angular/common';
 import { Router, ActivatedRoute, NavigationEnd } from '@angular/router';
 import { filter } from 'rxjs/operators';
-import { TuiButton, TuiDropdown, TuiDataList, TuiHint, TuiDialogService } from '@taiga-ui/core';
-import { PolymorpheusComponent } from '@taiga-ui/polymorpheus';
+import { TuiButton, TuiDropdown, TuiDataList, TuiHint } from '@taiga-ui/core';
 import { LaIconComponent, LaIconLibrary } from 'angular-line-awesome';
 import { lasEllipsisH, lasHome, larEdit, larUser, lasUsers, lasComment, lasPaperPlane, lasShieldAlt, lasUserSecret, lasUser, lasClock, lasBell, lasBellSlash, lasSpinner, lasUserPlus, lasRss, lasList, lasCog, lasRss as lasRssIcon } from 'angular-line-awesome/icons';
 import { AuthService } from '../auth/auth.service';
@@ -14,9 +13,9 @@ import { ErrorService } from '../error/error.service';
 import { CryptoService } from '../crypto/crypto.service';
 import { RsaPublicKeyService } from '../crypto/rsa-public-key.service';
 import { VapidPublicKeyService } from '../crypto/vapid-public-key.service';
-import { SettingsDialogComponent } from '../settings/settings-dialog';
 import { SignerInfo } from '../models/signer-info';
 import { PostDialogService } from '../post/post-dialog/post-dialog.service';
+import { SettingsDialogService } from '../settings/settings-dialog.service';
 
 type MenuItem = {
   label: string;
@@ -32,8 +31,8 @@ type MenuItem = {
 })
 export class Menu implements OnInit, OnDestroy {
   private router = inject(Router);
-  private dialogService = inject(TuiDialogService);
   private postDialogService = inject(PostDialogService);
+  private settingsDialogService = inject(SettingsDialogService);
   private authService = inject(AuthService);
   private postService = inject(PostService);
   private roomService = inject(RoomService);
@@ -150,20 +149,17 @@ isSignedIn = this.authService.isSignedIn;
   }
 
   openSettingsDialog(): void {
-    this.dialogService.open(new PolymorpheusComponent(SettingsDialogComponent), {
-      size: 'm',
-      closable: true,
-      dismissible: true,
-      label: 'Settings',
-    }).subscribe(async () => {
-      // Reload avatar and push status after dialog closes
-      this.loadAvatar();
-      const accountName = this.storedSigner()?.account;
-      if (accountName) {
-        const settings = await this.postService.getSettings(accountName);
-        if (settings) {
-          const subscription = await this.postService.getSubscription(accountName);
-          this.pushSubscription.set(settings.settings.pushEnabled && subscription ? subscription : null);
+    this.settingsDialogService.open().then(async (result) => {
+      if (result) {
+        // Reload avatar and push status after dialog closes
+        this.loadAvatar();
+        const accountName = this.storedSigner()?.account;
+        if (accountName) {
+          const settings = await this.postService.getSettings(accountName);
+          if (settings) {
+            const subscription = await this.postService.getSubscription(accountName);
+            this.pushSubscription.set(settings.settings.pushEnabled && subscription ? subscription : null);
+          }
         }
       }
     });
