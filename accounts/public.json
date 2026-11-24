@@ -1,27 +1,38 @@
 {
-  "updatedAt": 1795554145606,
+  "updatedAt": 1795554724807,
   "count": 3,
   "accounts": [
-    {
-      "username": "olivier",
-      "account": "olivier/l",
-      "providerSuffix": "",
-      "subscription": "mZ67BUa6eZZ13LvbAaGfAPfZd+JRmgA7ubiWA6Dz8ySLYZP6OZmGuMU1c/yMnQ04rTOq2t8Z/v8VVcUWaie8k53WLgim+j+0OmdkDMldBxmZ4kaDDVNkQVapgoUox+GcOE5RYSGzEabSJIEcJt7siexdnDd7rmP6wKTMrgheR9bN20/ne1k1Eb+J8QhgIK3uIjuzuWCRmoPvu3f6Zyuw549jhmJJL9bxTwf1PXs9Aj873GRxIfI66p2H1o68DvXtI1u6QkH0a+EBX1WMyMLb37kl9mG+9G//tlYzmu9cHb3p3YeMJq2EltMa9m/ynJ1RONiEuXsMAg3lwNdRoiXM0dBhj8YJyu2vNe/RsYL4+clDZosMwK5wvpM0POH986QzEBXdIJ4=",
-      "lastSeen": 1795554085450
-    },
-    {
-      "username": "piupiu",
-      "account": "piupiu",
-      "providerSuffix": "",
-      "subscription": "WqlNsh8xKOYaBM0BNLONGeWF+cTxjbYdEn4/g9J8cM8rzNXxNzT3aTmlghll6OC578mOlyR0btT4tiNJVsS7C/bJKSxUGdRMnY7nmkJC6BtIOS4l2jvcXHvUSwpZbnrHNFBiu+BcTveUR29jUIHRMXrrocaBBzUaPRrAH1RIJ28zTqKcN7DGW7ynJ29nm05+levW0Ga60xAD400FYfzSRHZhO5ejCunOFbn8fT8OyUr+wYKXpYrt0HSq+RbaeYpHBmbEobOyVV3G8W75lPZpAbfIvcrCfm/u3YSC0nC6ZXblFYGjo+LmnCqXTg1pcjXP7tCudjw995RGEK7IQ+t4kc5aCksASIncJ3iV5xF+0qnmNFIbQ5EJ2BNYBwkdEfqpCkE=",
-      "lastSeen": 1795553157780
-    },
     {
       "username": "michael79be",
       "account": "michael79be/l",
       "providerSuffix": "",
       "subscription": "KlBtfWjvzCbdG/s3dWIyt1sN5rHuywUweouUJB201RbvBXWfOYIVLpRxuLgk/sXrK/dApnd8RyPlHAAc88NjLw6mg6VKaHJRJ74nJjtP2miBi/cMvvwWsg45tYlaRw0IAvI2F3tJ6O+koIIlOaZ6JQYFGEelF/unF1lqLpXqmYXzfiSqwNQDiknZLNDIv/FQm1Fc/Vw2lrRQY+G1f036ltT3LwH8SfV4rfHIO7BzMKdvEP8kXqbVVt9KDy5NCmwpO7VwOi/pAk2T9qSgQiK3MdHVUnkM3QGqi5/XqKftwWiQ6TWKFB/YdGYcwAkk2UceppEhBjpwq3EZvNamaA9cYlvCBZFLj+d8ZHEhUhssUkGWqg9aOiHiqEmPjUDzFLDioM8RgfK2GzCQ/1yyaJmNQRVAX8KR/EP8LnbK8CpWF73RlEKGUoZr+2SCpmNJh8dWf+9i8BYMZUktzNaxovjcXyzF8jyfwLwHrRNQyQHeqRXf4pfdxMll+Rwox4Gsg2P8GllvMn0kOreYw0imvnZZJ05Nk2aXwNQu+p/49kqFJL56uOjtm1cnumE2xN7I+J+bwZS7uH/odRNyNvEYKwdwgJhjiUpDHmKNBnQMNsSZGGrHwT+/OzirUKVv0N/Yz8gXiA9Rqft6CR9HS3DFmxnVsN0+0qqkwyLrE4DQ13VYrpXoSZCpLKlh7v2iziJmiopeMKs8wI2Rm27FACEKlanK7KQ7NhHP1X7EhLR1iuQWd6SnpnI4RqECERicKWr4htFzcJuBne1qt0kCPDlHD6Jj7gugcp2A0tFMNKxcPxYJ5vm1YKPinDd1YZgPd1db0d7Y5xIoyl/e2PMYnvjw3ei/dURejLgk4VgXUg==",
-      "lastSeen": 1795553157765
+      "follow": {
+        "uuid": "@follow",
+        "follows": {
+          "piupiu": "https://is.gd/piupiu",
+          "olivier/l": "http://localhost:3000/olivier"
+        },
+        "signature": "MEYCIQCHoQgRIsMGwVxmp6FCi+3rvqR6BEEdhWK12xzUpn2SLAIhAMtBmichPVltaLovK9Ybaa0s1iaCS0jSliBFMx6a3225",
+        "authenticatorData": "SZYN5YgOjGh0NBcPZHZgW4/krrmihjLHmVzzuoMdl2MdAAAAAA==",
+        "clientData": "eyJ0eXBlIjoid2ViYXV0aG4uZ2V0IiwiY2hhbGxlbmdlIjoidGpLLWJ0Z1VSZndnbEFKb0dfNHdwQUs3U0U3azAzSU50LTZxVVVVMXpXRSIsIm9yaWdpbiI6Imh0dHA6Ly9sb2NhbGhvc3Q6NDIwMCIsImNyb3NzT3JpZ2luIjpmYWxzZX0=",
+        "publicKey": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE4l3iS3AUHhR166O1LI2kcvf8R5UgxWSYIcsiUldFAfBtj95oqyyNRYwVKDwmjk8gxjqKMprX8cezGGcUZTu+tQ=="
+      },
+      "lastSeen": 1795554665101
+    },
+    {
+      "username": "olivier",
+      "account": "olivier/l",
+      "providerSuffix": "",
+      "subscription": "N6ZV7FGwHsZ64WfOqV5co4pJ39YB3kCX5ykIguFpjtIXhSw7S6VxFUgxLOdnKZhcmoRuDjqOqhJcmB2DLBiBtfoUugGyBgUY3ehkxmeQ7iv/l98Ydu79AllONI7dfxzrhvFJ5gw53KkHNagRZNjuyA30TrjAvr34lu0R4/0MQX70epoDT6xZUmJtUSoFOdGU6qcRXphqeK1mbDpf8wfJF228wdj6qufUgSccXosreajDe5vqfdUqf4tuETghjLIUO/e8uFcQQ5VRI7or4Bme3D/ds0VB+Rk4/M8c5IEbIhP0BCbuvzLVPvHjdEdO62nyFNC6zPxLA5Ox6YZc5BtfDIOCGx92uGIGxcsN/TQZwocdXDH32BBwWo38ylYGEL2GbOXDieo=",
+      "lastSeen": 1795554665031
+    },
+    {
+      "username": "piupiu",
+      "account": "piupiu",
+      "providerSuffix": "",
+      "subscription": "K6hj6J2p7QAzZJSvsbYmQoZ1xvaZ+BhA4957nrBn1Sr31aDiY1JZaGUxFfkaAHToESec0ZdI8HOrJo+P6caUMGNJVvW/DTBF7N3pJBHBms4/hovt7muQYczRe0Qbmdk9He+GwX+hUnCLue3T9FYdn6GUUwuMKd4bxxwusYH5WjUh8q6kgKzI2JmXKkL1VOYITR3XLYZGLDVIQ77W7BC1ARzBjHfLwVVrAtgk0ipMSok1bw2sFflDpsBfoJmXCIoP4/2/ZrRmmPqVyqAvl5GSC/txbamNQPAmuxo0u7ztoaZTqapEC6ngs+GYfxfkSzgpSDSYDRbF/gVl91Wm5nO2faHUrFrulyw9kJmTeJ0fE03wGcmFIL0MBfFuzuKa1pzhdlU=",
+      "lastSeen": 1795554664810
     }
   ]
 }
