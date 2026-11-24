@@ -46,12 +46,13 @@
 
     <section class="space-y-4">
       @for (post of posts(); track post.uuid) {
+        @let message = getMessageData(post);
         <article id="post-{{ post.uuid }}" class="bg-white border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow">
-          <div class="text-gray-700 whitespace-pre-wrap mb-2">{{ post.content }}</div>
+          <div class="text-gray-700 whitespace-pre-wrap mb-2">{{ message.content }}</div>
           <footer class="flex items-center justify-between pt-2 border-t border-gray-100">
             <span class="text-xs text-gray-500 flex items-center gap-1">
               <la-icon [icon]="['las', 'clock']" class="text-gray-400"></la-icon>
-              <span>{{ formatTime(post.timestamp) }}</span>
+              <span>{{ formatTime(message.timestamp) }}</span>
             </span>
             @if (post.signature && post.signature.length > 0) {
               <div class="flex items-center gap-2 text-xs text-green-600">

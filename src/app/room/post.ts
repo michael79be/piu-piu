@@ -1,34 +1,23 @@
 import type { MessageAction } from '@trystero-p2p/core';
-
-export interface PostData {
-  uuid: string;
-  sender: string;
-  senderAccount: string;
-  timestamp: number;
-  content: string;
-  publicKey: string;
-  signature: string;
-  authenticatorData: string;
-  clientData: string;
-}
+import { MessageData } from '../models/post-data';
 
 export interface PostAction {
-  action: MessageAction<PostData> | null;
+  action: MessageAction<MessageData> | null;
   
-  init(action: MessageAction<PostData>): void;
+  init(action: MessageAction<MessageData>): void;
   
-  send(post: PostData): void;
+  send(post: MessageData): void;
   
-  onMessage(cb: (data: PostData, context: { peerId: string; userId: string }) => void): void;
+  onMessage(cb: (data: MessageData, context: { peerId: string; userId: string }) => void): void;
 }
 
 export function createPostAction(): PostAction {
-  let action: MessageAction<PostData> | null = null;
+  let action: MessageAction<MessageData> | null = null;
   
   return {
     get action() { return action; },
-    init(a: MessageAction<PostData>) { action = a; },
-    send(post: PostData) { action?.send(post); },
-    onMessage(cb: (data: PostData, context: { peerId: string; userId: string }) => void) { action?.onMessage(cb); },
+    init(a: MessageAction<MessageData>) { action = a; },
+    send(post: MessageData) { action?.send(post); },
+    onMessage(cb: (data: MessageData, context: { peerId: string; userId: string }) => void) { action?.onMessage(cb); },
   };
 }

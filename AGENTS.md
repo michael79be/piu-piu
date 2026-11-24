@@ -1,6 +1,6 @@
 # Piu-Piu
 
-Decentralized social network. Full client-side, no backend, hosted on piu-piu.top (custom domain). Account creation via URL shortener service (is.gd / v.gd / localhost provider). Auth via WebAuthn or Google OAuth2. P2P data sync via trystero. Web Push Notifications via VAPID.
+Decentralized social network. Full client-side, no backend, hosted on piu-piu.top (custom domain). Account creation via URL shortener service (is.gd / v.gd / localhost provider). Auth via WebAuthn. P2P data sync via trystero. Web Push Notifications via VAPID.
 
 ## Stack
 
@@ -58,24 +58,14 @@ Local provider (`provider.mjs` / `provider/`) runs on `:3000` and persists to `p
 
 ### Auth service (`src/app/auth/auth.service.ts`)
 
-- `AuthService` - manages dual authentication state (WebAuthn + Google OAuth2) using signals
+- `AuthService` - manages WebAuthn authentication state using signals
 - `isSignedIn` - signal for authentication state
 - `storedSigner` - signal containing signer info from sessionStorage
 - `displayName` - signal for display name
-- `authMethod` - signal: 'webauthn' | 'google'
 - `signerMatchesAccount` - computed checking if signer matches current route account
 - `signIn(accountName)` - performs WebAuthn credential.get with accountName as challenge
-- `signInWithGoogle()` - initiates Google OAuth2 with PKCE, opens popup
-- `completeGoogleSignIn(code, codeVerifier)` - exchanges code for tokens, creates ECDSA key pair
 - `signOut()` - clears sessionStorage and resets signals
 - `restoreSession()` - called in constructor, restores from sessionStorage
-
-### Google Auth services (`src/app/google-auth/`)
-
-- `GoogleAuthService` - OAuth2/OIDC with PKCE, token management, user info fetch, scope verification
-- `KeyStorageService` - ECDSA P-256 key pair generation, PBKDF2+AES-GCM encryption, Drive appdata storage
-- `GoogleCallbackComponent` - handles OAuth2 redirect at `/google-callback`
-- `GooglePasswordPromptComponent` - password prompt dialog with Drive access notice
 
 ### Room service (`src/app/room/room.service.ts`)
 
@@ -90,17 +80,20 @@ Local provider (`provider.mjs` / `provider/`) runs on `:3000` and persists to `p
 - `joinGlobalRoom()` / `leaveGlobalRoom()` - manages global room connection
 - `announceGlobalIfSignedIn()` - broadcasts whoami with encrypted subscription field (preserves existing PushSubscription)
 - `updateWhoamiSubscription()` - updates whoami with new push subscription, updates sessionStorage
+- Meta posts (`@settings`, `@follow`) broadcast on room join and every 60s
 - Logs join/leave/whoami/post events to console
 
 ### Post service (`src/app/post/post.service.ts`)
 
 - `PostService` - manages posts stored in IndexedDB via `idb`
-- `createPost(accountName, content)` - creates post with uuid, sender, timestamp, content, and WebAuthn/Google signature
+- `createPost(accountName, content)` - creates post with uuid, sender, timestamp, content, and WebAuthn signature
 - `getPost(uuid)` - retrieves single post by uuid
 - `getAllPosts(accountName)` - retrieves all posts sorted by timestamp descending
 - `getVerifiedPosts(accountName)` - retrieves and verifies posts using post's publicKey, filters invalid
 - `deletePost(uuid)` - deletes post by uuid
 - `verifyPost(post)` - verifies post signature using Web Crypto API with post's publicKey
+- `saveSettings(settings)`, `getSettings()`, `saveFollow(follow)`, `getFollow()`, `verifyFollow()`, `isFollowing()`
+- `saveSubscription(accountName, subscription)` / `getSubscription(accountName)` - manages push subscriptions in `@subscription` key
 
 **Post data structure:**
 - `uuid` - crypto.randomUUID()
@@ -114,7 +107,7 @@ Local provider (`provider.mjs` / `provider/`) runs on `:3000` and persists to `p
 - `clientData` - base64 encoded client data JSON
 
 **Signature flow:**
-- Signing: `createPost()` computes challenge as SHA-256 of `${uuid}:${senderAccount}:${timestamp}:${content}`, calls `navigator.credentials.get()` (WebAuthn) or `signData()` (Google)
+- Signing: `createPost()` computes challenge as SHA-256 of `${uuid}:${senderAccount}:${timestamp}:${content}`, calls `navigator.credentials.get()` (WebAuthn)
 - Verification: `verifyPost()` reconstructs signing string, hashes clientData, verifies signature with publicKey
 - All binary fields stored as base64 strings for reliable JSON transport
 
@@ -127,6 +120,15 @@ Local provider (`provider.mjs` / `provider/`) runs on `:3000` and persists to `p
 - Uses `POLYMORPHEUS_CONTEXT` for dialog context (close/completeWith)
 - Returns `PostData` observable via `context.completeWith()`
 
+### Settings dialog (`src/app/settings/`)
+
+- `SettingsDialogComponent` - Taiga UI routable dialog via `TuiDialogService`
+- Avatar services: Gravatar, Libravatar, Custom URL, None
+- Dynamic email/URL input based on selected service
+- Push notifications toggle
+- Settings signed with WebAuthn, stored in IndexedDB (`@settings` key)
+- Broadcast to peers via room service on save
+
 ### Crypto service (`src/app/crypto/crypto.service.ts`)
 
 - `CryptoService` - centralized cryptographic operations
@@ -136,7 +138,7 @@ Local provider (`provider.mjs` / `provider/`) runs on `:3000` and persists to `p
 - `derToRawSignature(derSig)` - converts DER to raw r|s for ECDSA P-256
 - `padChallenge(challenge)` - ensures challenge is 32 bytes for Web Crypto
 - `bytesToBase64()`, `base64ToBytes()` - helpers for base64 encoding/decoding
-- `signData(data, publicKey)` - signs data with ECDSA key (for Google auth)
+- `signData(data, publicKey)` - signs data with ECDSA key
 - `verifySignature(data, signature, publicKey)` - verifies ECDSA signature
 - `importRsaPublicKey(pem)` - imports RSA public key from PEM
 - `rsaEncrypt(data, publicKeyPem)` - hybrid encryption: AES-GCM for data + RSA-OAEP for AES key
@@ -156,7 +158,7 @@ Local provider (`provider.mjs` / `provider/`) runs on `:3000` and persists to `p
 - `/register` - Register page
 - `/@:accountName` - Account page with account name (defaults to is.gd)
 - `/@:accountName/:provider` - Account page with account name and provider suffix (v=v.gd, l=localhost)
-- `/google-callback` - Google OAuth2 redirect handler
+- `/feed` - Feed page (posts from followed accounts)
 
 All routes use lazy-loaded components (`loadComponent`).
 
@@ -165,10 +167,9 @@ All routes use lazy-loaded components (`loadComponent`).
 - Project description with cloud background and apple-touch-icon.png
 - App icon displayed prominently at top
 - Sign in button - shows input for account name or URL + provider dropdown (hidden for URL input)
-- WebAuthn and Google Sign-In buttons
+- WebAuthn Sign-In button
 - Register button - navigates to register page
 - Public data warning notice
-- Google Drive access notice (for encrypted key storage)
 
 ### Register screen (`src/app/register/`)
 
@@ -183,8 +184,8 @@ All routes use lazy-loaded components (`loadComponent`).
 ### Account screen (`src/app/account/`)
 
 - Light mode, X.com-inspired layout using Taiga UI components (`TuiButton`, `TuiDropdown`, `TuiDataList`) and `angular-line-awesome` (`la-icon` component with `las`/`lar` prefixes)
-- Left navigation: Home, Post (when signed in)
-- Top bar: User menu with sign in/out/register, Google Sign-In, push notifications toggle
+- Left navigation: Home (→ `/feed`), Post (when signed in)
+- Top bar: User menu with sign in/out/register, push notifications toggle
 - App icon + "Piu-Piu" title in sidebar header
 - Main content area displays profile with "Piu-Piu" title and posts feed
 - Uses `ProfileResolver` to load profile data from route params
@@ -193,9 +194,9 @@ All routes use lazy-loaded components (`loadComponent`).
 - Listens for `piu-piu:load-posts` custom event to auto-refresh posts
 - Uses `AuthService` for authentication state
 - Auto-triggers WebAuthn sign-in when `?signIn=true` query param present
-- Shows password prompt dialog for Google auth completion
 - Push notifications: subscribe/unsubscribe via service worker, hybrid RSA encryption, updates whoami
 - **Push subscription persists across reloads** - auto-restored on page load via `pushManager.getSubscription()` and IndexedDB `@subscription`
+- Follow/unfollow button with loading state, hidden on mobile
 
 **Profile loading flow:**
 - `ProfileResolver` loads profile data from route params (`accountName` + optional `provider`)
@@ -205,7 +206,7 @@ All routes use lazy-loaded components (`loadComponent`).
 **Post flow:**
 - Post button opens `PostDialogComponent` via `TuiDialogService`
 - User enters content, submits
-- `PostService.createPost(content)` signs with WebAuthn or Google, stores in IndexedDB
+- `PostService.createPost(content)` signs with WebAuthn, stores in IndexedDB
 - `RoomService.broadcastPost(post)` sends to P2P room
 - Posts list refreshes, displays newest first
 - Each post shows sender, timestamp, content, and signature status
@@ -223,13 +224,12 @@ All routes use lazy-loaded components (`loadComponent`).
   - Cryptographic signature verification via Web Crypto API (`verifyWebAuthnSignature`)
 - Sets `isSignedIn` based on all checks passing
 
-**Google auth flow:**
-- `signInWithGoogle()` generates PKCE code verifier/challenge, opens Google OAuth popup
-- Popup redirects to `/google-callback` which posts code back to opener
-- `completeGoogleSignIn()` exchanges code for tokens, fetches user info
-- Generates ECDSA P-256 key pair, encrypts with PBKDF2+AES-GCM using user password
-- Stores encrypted key pair in Google Drive appdata folder
-- Stores signer in sessionStorage with `authMethod: 'google'`
+### Feed page (`src/app/feed/`)
+
+- Child route under Layout, shows posts from followed accounts sorted by timestamp descending
+- Loads verified posts via `PostService.getVerifiedPosts()` for each followed account
+- Small avatar (`w-6 h-6`) for each post using `getAvatarUrl()` with Gravatar/Libravatar
+- Signal-based `gravatarCache` with on-demand `fetchAndCacheAvatar`
 
 ### Pull Accounts Script (`pull_accounts.mjs`)
 
@@ -243,11 +243,12 @@ All routes use lazy-loaded components (`loadComponent`).
 - **Fails on any peer connection errors** (`errorCount > 0`)
 - **24h cleanup** - removes accounts with `lastSeen` > 24h
 - **Deduplication** - keyed by `username|account|profileUrl`, keeps latest `lastSeen`
+- Failsafe deduplication by `account` field (two-pass)
 
 ### Layout & Menu Components
 
 - `Layout` (`src/app/layout/layout.ts`) - wrapper component with shared sidebar/menu, contains `RouterOutlet` for child routes
-- `Menu` (`src/app/menu/menu.ts`) - sidebar with app icon, navigation (Feed/Back + Post), user dropdown with sign in/out, push notifications
+- `Menu` (`src/app/menu/menu.ts`) - sidebar with app icon, navigation (Feed/Post), user dropdown with sign in/out, push notifications
 - `Feed` (`src/app/feed/feed.ts`) - child route under Layout, shows posts from followed accounts sorted by timestamp descending
 - `Account` (`src/app/account/account.ts`) - child route under Layout, shows profile and posts for specific account
 
@@ -267,7 +268,6 @@ Pull accounts via cron-job.org → GitHub Actions `repository_dispatch` (every 5
 
 - All data is PUBLIC. Every post, profile, and interaction is publicly visible and cryptographically verifiable.
 - WebAuthn credentials never leave the authenticator.
-- Google OAuth2 uses PKCE for code exchange security.
 - ECDSA private keys encrypted with PBKDF2+AES-GCM, stored in Google Drive appdata.
 - Push subscriptions encrypted with RSA-OAEP (hybrid with AES-GCM) before storage/transmission.
 - Push subscriptions stored in IndexedDB (per-account database, key `@subscription`) instead of localStorage for service worker access.

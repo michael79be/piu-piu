@@ -1,6 +1,6 @@
 # Piu-Piu
 
-Decentralized social network. Full client-side, no backend, hosted on piu-piu.top (custom domain). Account creation via URL shortener service (is.gd / v.gd / localhost provider). Auth via WebAuthn or Google OAuth2. P2P data sync via trystero. Web Push Notifications via VAPID.
+Decentralized social network. Full client-side, no backend, hosted on piu-piu.top (custom domain). Account creation via URL shortener service (is.gd / v.gd / localhost provider). Auth via WebAuthn. P2P data sync via trystero. Web Push Notifications via VAPID.
 
 ⚠️ **IMPORTANT:** Anything published on the network is public. Everything is signed but not encrypted. There are no private messages. Data is synchronized unencrypted over multiple devices on the whole network.
 
@@ -11,15 +11,17 @@ Decentralized social network. Full client-side, no backend, hosted on piu-piu.to
    - `https://v.gd/abc123` → opens as `/@abc123/v`
    - `http://localhost:3000/abc123` → opens as `/@abc123/l`
 
-2. **Home page** — Displays project description with Sign in (WebAuthn + Google) and Register buttons. App icon displayed prominently.
+2. **Home page** — Displays project description with Sign in (WebAuthn) and Register buttons. App icon displayed prominently.
 
 3. **View a profile** — Opening an account URL (`/@accountName` or `/@accountName/v`) resolves the provider, looks up the short URL, decodes the embedded profile, and displays it on the Account page.
 
 4. **P2P Sync** — When visiting an account page, the client joins a trystero WebRTC room named after the account. Signed-in users announce themselves via a `whoami` action; guests help relay data but don't announce. Global room `"piu-piu"` collects all users for push notifications.
 
-5. **Posts** — Signed-in users can create posts via the Post dialog. Each post is signed with WebAuthn (ECDSA P-256) or Google ECDSA key, stored in per-account IndexedDB, and displayed in the feed with signature verification status. Posts are broadcast to all peers in the room.
+5. **Posts** — Signed-in users can create posts via the Post dialog. Each post is signed with WebAuthn (ECDSA P-256), stored in per-account IndexedDB, and displayed in the feed with signature verification status. Posts are broadcast to all peers in the room.
 
-6. **Push Notifications** — Subscribe via service worker. Subscription encrypted with RSA public key (hybrid AES-GCM + RSA-OAEP), stored in per-account IndexedDB (key `@subscription`) and announced in global room whoami. **Service worker checks IndexedDB before showing notifications** - push payload must include `accountName`. Persists across reloads with automatic restoration.
+6. **Feed** — Signed-in users see posts from followed accounts in `/feed`, sorted by timestamp descending.
+
+7. **Push Notifications** — Subscribe via service worker. Subscription encrypted with RSA public key (hybrid AES-GCM + RSA-OAEP), stored in per-account IndexedDB (key `@subscription`) and announced in global room whoami. **Service worker checks IndexedDB before showing notifications** - push payload must include `accountName`. Persists across reloads with automatic restoration.
 
 **Profile loading flow:**
 - `ProfileResolver` loads profile data from route params (`accountName` + optional `provider`)
@@ -48,21 +50,16 @@ Everything is client-side; there is no server except the optional local shortene
 - `ErrorService` - shows toast notifications using Taiga UI toasts (`TuiToastService`)
 
 ### Auth service (`src/app/auth/auth.service.ts`)
-- `AuthService` - manages dual authentication state (WebAuthn + Google OAuth2) using signals
-- `isSignedIn`, `storedSigner`, `displayName`, `authMethod`, `signerMatchesAccount` signals
-- `signIn(accountName)`, `signInWithGoogle()`, `completeGoogleSignIn()`, `signOut()`, `restoreSession()`
-
-### Google Auth services (`src/app/google-auth/`)
-- `GoogleAuthService` - OAuth2/OIDC with PKCE, token management, user info fetch, scope verification
-- `KeyStorageService` - ECDSA P-256 key pair generation, PBKDF2+AES-GCM encryption, Drive appdata storage
-- `GoogleCallbackComponent` - handles OAuth2 redirect at `/google-callback`
-- `GooglePasswordPromptComponent` - password prompt dialog with Drive access notice
+- `AuthService` - manages WebAuthn authentication state using signals
+- `isSignedIn`, `storedSigner`, `displayName`, `signerMatchesAccount` signals
+- `signIn(accountName)`, `signOut()`, `restoreSession()`
 
 ### Room service (`src/app/room/room.service.ts`)
 - `RoomService` - manages trystero P2P room for data sync
 - `joinRoom(accountName)` - joins room named after account
 - Actions: `whoami` (global room), `post`, `request`, `provide`
 - Global room `"piu-piu"` for all users (whoami only), polling: 10s newer posts, 30s older posts
+- Meta posts (`@settings`, `@follow`) broadcast on join and every 60s
 
 ### Crypto service (`src/app/crypto/crypto.service.ts`)
 - Centralized cryptographic operations
@@ -73,8 +70,9 @@ Everything is client-side; there is no server except the optional local shortene
 ### Post service (`src/app/post/post.service.ts`)
 - `PostService` - manages posts stored in IndexedDB via `idb`
 - Per-account databases (name = accountName)
-- `createPost(content)` - creates post with uuid, sender, timestamp, content, WebAuthn/Google signature
+- `createPost(content)` - creates post with uuid, sender, timestamp, content, WebAuthn signature
 - `getPost(uuid)`, `getAllPosts()`, `deletePost(uuid)`, `verifyPost(post)`
+- `saveSettings()`, `getSettings()`, `saveFollow()`, `getFollow()`, `verifyFollow()`
 - **`saveSubscription(accountName, subscription)` / `getSubscription(accountName)`** - manages push subscriptions in `@subscription` key
 
 ### Post dialog (`src/app/post/post-dialog/`)
@@ -82,12 +80,17 @@ Everything is client-side; there is no server except the optional local shortene
 - Opens from Account page Post button (only when `signerMatchesAccount`)
 - Returns `PostData` observable via `context.completeWith()`
 
+### Settings dialog (`src/app/settings/`)
+- `SettingsDialogComponent` - Taiga UI dialog for avatar and push settings
+- Avatar services: Gravatar, Libravatar, Custom URL, None
+- Push notifications toggle
+
 ### Routes (custom UrlMatcher for @ prefix)
 - `/` - Home page
+- `/feed` - Feed page (posts from followed accounts)
 - `/register` - Register page
 - `/@:accountName` - Account page (defaults to is.gd)
 - `/@:accountName/:provider` - Account page with provider suffix (v=v.gd, l=localhost)
-- `/google-callback` - Google OAuth2 redirect handler
 - All routes use lazy-loaded components (`loadComponent`)
 
 ## Development

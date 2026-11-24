@@ -72,6 +72,17 @@ async function rsaDecrypt(encryptedData, privateKey) {
   return new TextDecoder().decode(decryptedData);
 }
 
+// Check if decrypted value is a valid PushSubscription
+function isValidSubscription(obj) {
+  return obj && 
+         typeof obj === 'object' && 
+         typeof obj.endpoint === 'string' && 
+         obj.endpoint.length > 0 &&
+         obj.keys &&
+         typeof obj.keys.p256dh === 'string' &&
+         typeof obj.keys.auth === 'string';
+}
+
 async function sendTestNotification() {
   const data = JSON.parse(readFileSync(ACCOUNTS_FILE, 'utf-8'));
   const accounts = data.accounts || [];
@@ -88,6 +99,7 @@ async function sendTestNotification() {
 
   let sent = 0;
   let failed = 0;
+  let skipped = 0;
 
   const filteredAccounts = TEST_ACCOUNT
     ? accounts.filter(a => a.username === TEST_ACCOUNT)
@@ -101,12 +113,31 @@ async function sendTestNotification() {
   for (const account of filteredAccounts) {
     if (!account.subscription) {
       console.log(`Skipping ${account.username} - no subscription`);
+      skipped++;
       continue;
     }
 
     try {
       const decrypted = await rsaDecrypt(account.subscription, privateKey);
-      const subscription = JSON.parse(decrypted);
+      
+      // Try to parse as JSON (could be subscription or just account name)
+      let subscription;
+      try {
+        subscription = JSON.parse(decrypted);
+      } catch {
+        // Not valid JSON - might be encrypted account name fallback
+        console.log(`Skipping ${account.username} - subscription field contains non-JSON (likely encrypted account name): ${decrypted.substring(0, 50)}`);
+        skipped++;
+        continue;
+      }
+      
+      // Validate it's a proper PushSubscription
+      if (!isValidSubscription(subscription)) {
+        console.log(`Skipping ${account.username} - decrypted data is not a valid PushSubscription`);
+        skipped++;
+        continue;
+      }
+
       const payload = JSON.stringify({
         title: 'Piu-Piu Test',
         body: TEST_MESSAGE || `Test notification for @${account.username}`,
@@ -122,7 +153,7 @@ async function sendTestNotification() {
     }
   }
 
-  console.log(`Done: ${sent} sent, ${failed} failed`);
+  console.log(`Done: ${sent} sent, ${failed} failed, ${skipped} skipped`);
 }
 
 sendTestNotification().catch(console.error);

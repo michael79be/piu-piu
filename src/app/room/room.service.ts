@@ -3,7 +3,7 @@ import { TuiToastService } from '@taiga-ui/kit';
 import type { Room, PeerJoinContext, PeerLeaveContext } from '@trystero-p2p/core';
 import { SESSION_KEY } from '../auth/auth.enum';
 import { PostService } from '../post/post.service';
-import { PostData } from '../models/post-data';
+import { MessageData } from '../models/post-data';
 import { CryptoService } from '../crypto/crypto.service';
 import { RsaPublicKeyService } from '../crypto/rsa-public-key.service';
 import { AuthService } from '../auth/auth.service';
@@ -32,7 +32,7 @@ export interface RequestPayload {
 
 export interface ProvidePayload {
   accountName: string;
-  posts: PostData[];
+  posts: MessageData[];
 }
 
 const GLOBAL_ROOM_NAME = 'piu-piu';
@@ -86,23 +86,23 @@ export class RoomService {
 
       const selfInfo = await room.getSelf();
       this.selfId.set(selfInfo.userId);
-      console.debug('[Room] joined room:', accountName, 'selfId:', selfInfo.userId);
+      console.info('🔵 [Room] Joined room:', accountName, 'selfId:', selfInfo.userId);
 
       this.postAction.init(room.makeAction('post'));
-      this.postAction.onMessage(async (data: PostData, context: { peerId: string; userId: string }) => {
-        console.debug('[Room] post received from:', context.peerId, 'post:', data.uuid);
+      this.postAction.onMessage(async (data: MessageData, context: { peerId: string; userId: string }) => {
+        console.debug('🟢 [Room] Post received from:', context.peerId, 'post:', data.uuid);
         await this.zone.run(() => this.handleIncomingPost(data));
       });
 
       this.requestAction.init(room.makeAction('request'));
       this.requestAction.onMessage(async (data: RequestPayload, context: { peerId: string; userId: string }) => {
-        console.debug('[Room] request received from:', context.peerId, 'account:', data.accountName);
+        console.debug('🟢 [Room] Request received from:', context.peerId, 'account:', data.accountName);
         await this.zone.run(() => this.handleRequest(data, context.peerId));
       });
 
       this.provideAction.init(room.makeAction('provide'));
       this.provideAction.onMessage(async (data: ProvidePayload, context: { peerId: string; userId: string }) => {
-        console.debug('[Room] provide received from:', context.peerId, 'posts:', data.posts.length);
+        console.debug('🟢 [Room] Provide received from:', context.peerId, 'posts:', data.posts.length);
         await this.zone.run(() => this.handleProvide(data));
       });
 
@@ -118,24 +118,28 @@ export class RoomService {
           if (current.find(p => p.id === peer.id)) return current;
           return [...current, peer];
         });
-        console.debug('[Room] peer joined:', context.peerId, 'userId:', context.userId);
+        console.debug('🟢 [Room] Peer joined:', context.peerId, 'userId:', context.userId);
         this.requestPosts(accountName);
         const meta = await this.postService.getMeta(accountName);
-        console.debug('[Room] getMeta returned:', meta);
       });
 
       room.onPeerLeave((context: PeerLeaveContext) => {
         this.peers.update(current => current.filter(p => p.id !== context.peerId));
-        console.debug('[Room] peer left:', context.peerId, 'userId:', context.userId);
+        console.debug('🟢 [Room] Peer left:', context.peerId, 'userId:', context.userId);
       });
 
       await room.ready;
 
       await this.requestPosts(accountName);
+      // Poll @ posts (settings, follow) on join
+      const meta = await this.postService.getMeta(accountName);
+      for (const m of meta) {
+        await this.broadcastPost(m as unknown as MessageData);
+      }
       this.startPolling(accountName);
 
     } catch (error) {
-      console.error('Failed to join room:', error);
+      console.error('🔴 [Room] Failed to join room:', error);
       this.toastService.open('Failed to join room', { appearance: 'negative', autoClose: 5000 }).subscribe();
     }
   }
@@ -157,11 +161,11 @@ export class RoomService {
       this.globalPeers.set([]);
 
       const selfInfo = await room.getSelf();
-      console.debug('[Room] joined global room:', GLOBAL_ROOM_NAME, 'selfId:', selfInfo.userId);
+      console.info('🔵 [Room] Joined global room:', GLOBAL_ROOM_NAME, 'selfId:', selfInfo.userId);
 
       this.globalWhoamiAction.init(room.makeAction('whoami'));
       this.globalWhoamiAction.onMessage((data: WhoamiPayload, context: { peerId: string; userId: string }) => {
-        console.debug('[Room] global whoami received from:', context.peerId, 'account:', data.account);
+        console.debug('🟢 [Room] Global whoami received from:', context.peerId, 'account:', data.account);
         const peer = this.globalPeers().find(p => p.id === context.peerId);
         if (peer) {
           this.globalPeers.update(current =>
@@ -195,13 +199,13 @@ export class RoomService {
           if (current.find(p => p.id === peer.id)) return current;
           return [...current, peer];
         });
-        console.debug('[Room] global peer joined:', context.peerId, 'userId:', context.userId);
+        console.debug('🟢 [Room] Global peer joined:', context.peerId, 'userId:', context.userId);
         this.announceGlobalIfSignedIn(context.peerId);
       });
 
       room.onPeerLeave((context: PeerLeaveContext) => {
         this.globalPeers.update(current => current.filter(p => p.id !== context.peerId));
-        console.debug('[Room] global peer left:', context.peerId, 'userId:', context.userId);
+        console.debug('🟢 [Room] Global peer left:', context.peerId, 'userId:', context.userId);
       });
 
       await room.ready;
@@ -209,7 +213,7 @@ export class RoomService {
       this.announceGlobalIfSignedIn();
 
     } catch (error) {
-      console.error('Failed to join global room:', error);
+      console.error('🔴 [Room] Failed to join global room:', error);
     }
   }
 
@@ -233,14 +237,14 @@ export class RoomService {
     };
 
     this.requestAction.send(payload);
-    console.debug('[Room] Requested posts for:', accountName, 'before:', options?.before, 'after:', options?.after);
+    console.debug('🟢 [Room] Requested posts for:', accountName, 'before:', options?.before, 'after:', options?.after);
   }
 
   private async handleRequest(data: RequestPayload, peerId: string): Promise<void> {
     const accountName = this.currentAccount();
     if (!accountName || accountName !== data.accountName) return;
 
-    let posts = await this.postService.getAllPosts(accountName);
+    let posts = await this.postService.getAllPostsWithFullData(accountName);
 
     if (data.before) {
       const beforeIndex = posts.findIndex(p => p.uuid === data.before);
@@ -257,27 +261,50 @@ export class RoomService {
     }
 
     if (posts.length === 0) {
-      console.debug('[Room] No posts to provide for:', accountName, 'before:', data.before, 'after:', data.after);
+      console.debug('🟢 [Room] No posts to provide for:', accountName, 'before:', data.before, 'after:', data.after);
       return;
     }
 
     const provide = this.provideAction;
     if (!provide) return;
 
+    const meta = await this.postService.getMeta(accountName);
+    const signer = this.authService?.storedSigner?.();
+    
+    // Convert meta to MessageData format
+    const metaPosts: MessageData[] = meta.map(m => ({
+      uuid: 'avatarUrl' in m ? '@settings' : '@follow',
+      sender: signer?.username ?? 'unknown',
+      senderAccount: signer?.account ?? accountName,
+      timestamp: Date.now(),
+      content: 'avatarUrl' in m ? 'settings' : 'follow',
+      publicKey: signer?.publicKey ?? '',
+      signature: m.signature ?? '',
+      authenticatorData: m.authenticatorData ?? '',
+      clientData: m.clientData ?? '',
+    }));
+
+    const allPosts = [...posts, ...metaPosts];
+
+    if (allPosts.length === 0) {
+      console.debug('🟢 [Room] No posts to provide for:', accountName, 'before:', data.before, 'after:', data.after);
+      return;
+    }
+
     const payload: ProvidePayload = {
       accountName,
-      posts,
+      posts: allPosts,
     };
 
     await provide.send(payload, { target: peerId });
-    console.debug('[Room] Provided', posts.length, 'posts to:', peerId, 'before:', data.before, 'after:', data.after);
+    console.debug('🟢 [Room] Provided', allPosts.length, 'posts to:', peerId, 'before:', data.before, 'after:', data.after);
   }
 
   private async handleProvide(data: ProvidePayload): Promise<void> {
     const accountName = this.currentAccount();
     if (!accountName || accountName !== data.accountName) return;
 
-    console.debug('[Room] Received', data.posts.length, 'posts from peer');
+    console.debug('🟢 [Room] Received', data.posts.length, 'posts from peer');
     for (const post of data.posts) {
       await this.handleIncomingPost(post);
     }
@@ -286,31 +313,35 @@ export class RoomService {
     }
   }
 
-  private async handleIncomingPost(post: PostData): Promise<void> {
+  private async handleIncomingPost(post: MessageData): Promise<void> {
     const accountName = this.currentAccount();
     if (!accountName) return;
 
-    const publicKey = post.publicKey;
-    if (!publicKey || publicKey.length === 0) {
-      console.warn('[Room] No public key in post from:', post.senderAccount);
-      return;
-    }
+    const isMeta = post.uuid === '@settings' || post.uuid === '@follow';
 
-    const isValid = await this.postService.verifyPost(post);
-    if (!isValid) {
-      console.warn('[Room] Invalid post signature from:', post.senderAccount);
-      return;
-    }
+    if (!isMeta) {
+      const publicKey = post.publicKey;
+      if (!publicKey || publicKey.length === 0) {
+        console.warn('🟡 [Room] No public key in post from:', post.senderAccount);
+        return;
+      }
 
-    const existing = await this.postService.getPost(accountName, post.uuid);
-    if (existing) {
-      console.debug('[Room] Post already exists:', post.uuid);
-      return;
+      const isValid = await this.postService.verifyPost(post);
+      if (!isValid) {
+        console.warn('🟡 [Room] Invalid post signature from:', post.senderAccount);
+        return;
+      }
+
+      const existing = await this.postService.getPost(accountName, post.uuid);
+      if (existing) {
+        console.debug('🟢 [Room] Post already exists:', post.uuid);
+        return;
+      }
     }
 
     const db = await this.postService.getDB(accountName);
     await db.put('posts', JSON.stringify(post), post.uuid);
-    console.debug('[Room] Stored verified post from:', post.senderAccount);
+    console.debug('🟢 [Room] Stored verified', isMeta ? 'meta' : 'post', 'from:', post.senderAccount);
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('piu-piu:load-posts', { detail: { accountName } }));
     }
@@ -319,13 +350,13 @@ export class RoomService {
   private async startPolling(accountName: string): Promise<void> {
     this.stopPolling();
 
-    const posts = await this.postService.getAllPosts(accountName);
+    const posts = await this.postService.getAllPostsWithFullData(accountName);
     const latestUuid = posts.length > 0 ? posts[0].uuid : undefined;
     const oldestUuid = posts.length > 0 ? posts[posts.length - 1].uuid : undefined;
 
     // Poll for newer posts (after latest) every 10 seconds
     const afterInterval = setInterval(async () => {
-      const currentPosts = await this.postService.getAllPosts(accountName);
+      const currentPosts = await this.postService.getAllPostsWithFullData(accountName);
       const latest = currentPosts.length > 0 ? currentPosts[0].uuid : undefined;
       if (latest) {
         this.requestPosts(accountName, { after: latest });
@@ -335,7 +366,7 @@ export class RoomService {
 
     // Poll for older posts (before oldest) every 30 seconds
     const beforeInterval = setInterval(async () => {
-      const currentPosts = await this.postService.getAllPosts(accountName);
+      const currentPosts = await this.postService.getAllPostsWithFullData(accountName);
       const oldest = currentPosts.length > 0 ? currentPosts[currentPosts.length - 1].uuid : undefined;
       if (oldest) {
         this.requestPosts(accountName, { before: oldest });
@@ -343,11 +374,12 @@ export class RoomService {
     }, 30000);
     this.pollingIntervals.push(beforeInterval);
 
-    // Poll for @ posts (settings, follow) every 60 seconds
+    // Poll for @ posts (settings, follow) every 60 seconds and broadcast them
     const metaInterval = setInterval(async () => {
       const meta = await this.postService.getMeta(accountName);
-      console.debug('[Room] Polled @ posts for:', accountName, 'count:', meta.length);
-      // Settings and follow data are already handled by their respective sync mechanisms
+      for (const m of meta) {
+        await this.broadcastPost(m as unknown as MessageData);
+      }
     }, 60000);
     this.pollingIntervals.push(metaInterval);
 
@@ -364,9 +396,9 @@ private stopPolling(): void {
     this.pollingIntervals = [];
   }
 
-  async broadcastPost(post: PostData): Promise<void> {
+  async broadcastPost(post: MessageData): Promise<void> {
     this.postAction.send(post);
-    console.debug('[Room] Broadcasted post:', post.uuid);
+    console.debug('🟢 [Room] Broadcasted post:', post.uuid);
   }
 
   private async announceGlobalIfSignedIn(peerId?: string): Promise<void> {

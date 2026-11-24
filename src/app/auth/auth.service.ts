@@ -4,8 +4,6 @@ import { PostService } from '../post/post.service';
 import { ErrorService } from '../error/error.service';
 import { CryptoService } from '../crypto/crypto.service';
 import { SESSION_KEY } from '../auth/auth.enum';
-import { ProfileData } from '../models/profile-data';
-import { SettingsData } from '../models/settings-data';
 import { SignerInfo } from '../models/signer-info';
 import { getProviderByUrl } from '../provider/provider.enum';
 
@@ -75,13 +73,13 @@ export class AuthService {
 
     if (await this.checkSigner(signerInfo)) {
       signerInfo.publicKey = profile?.publicKey ?? '';
-      
+
       sessionStorage.setItem(SESSION_KEY, JSON.stringify(signerInfo));
       this.storedSigner.set(signerInfo);
       this.isSignedIn.set(true);
       this.displayName.set(signerInfo.username);
       this.errorService.showSuccess('Signed in successfully');
-      
+
       return true;
     } else {
       this.errorService.showError('Checking signature failed');
@@ -104,11 +102,11 @@ export class AuthService {
         return false;
       }
 
-      const hasSignatureAndClientData = signer.clientData.length > 0 && signer.signature.length > 0;
+      const hasSignatureAndClientData = (signer.clientData ?? []).length > 0 && (signer.signature ?? []).length > 0;
       const signatureValid = await this.cryptoService.verifyWebAuthnSignature(
-        signer.authenticatorData,
-        signer.clientData,
-        signer.signature,
+        signer.authenticatorData ?? '',
+        signer.clientData ?? '',
+        signer.signature ?? '',
         data.publicKey
       );
 

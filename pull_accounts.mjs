@@ -156,17 +156,15 @@ async function main() {
 
   whoamiAction.onMessage((data, context) => {
     collected++;
-    const signerInfo = data.signerInfo;
-    if (!signerInfo) {
-      console.warn('[whoami] missing signerInfo in payload:', data);
+    if (!data || !data.username) {
+      console.warn('[whoami] missing username in payload:', data);
       return;
     }
     const entry = {
-      username: signerInfo.username,
-      account: signerInfo.account,
-      publicKey: signerInfo.publicKey,
-      profileUrl: signerInfo.profileUrl,
-      subscription: signerInfo.subscription,
+      username: data.username,
+      account: data.account,
+      providerPrefix: data.providerPrefix,
+      subscription: data.subscription,
       lastSeen: Date.now(),
     };
     const key = getAccountKey(entry);
@@ -174,7 +172,7 @@ async function main() {
     if (!existing || entry.lastSeen > existing.lastSeen) {
       accounts.set(key, entry);
     }
-    console.log(`[whoami] @${signerInfo.account} (${signerInfo.username}) from peer ${context.peerId}${signerInfo.subscription ? ' [subscription]' : ''}`);
+    console.log(`[whoami] @${data.account} (${data.username}) providerPrefix: ${data.providerPrefix}${data.subscription ? ' [subscription]' : ''} from peer ${context.peerId}`);
   });
 
   room.onPeerJoin((context) => {

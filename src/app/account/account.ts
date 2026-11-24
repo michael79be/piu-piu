@@ -11,8 +11,7 @@ import { ErrorService } from '../error/error.service';
 import { RoomService } from '../room/room.service';
 import { AuthService } from '../auth/auth.service';
 import { PostService } from '../post/post.service';
-import { PostData } from '../models/post-data';
-import { SettingsData } from '../models/settings-data';
+import { MessageData } from '../models/post-data';
 import { PostDialogComponent } from '../post/post-dialog/post-dialog.component';
 import { CryptoService } from '../crypto/crypto.service';
 import { RsaPublicKeyService } from '../crypto/rsa-public-key.service';
@@ -86,8 +85,8 @@ export class Account implements OnInit, OnDestroy {
 
     // Fallback to @settings (for own account)
     const settings = await this.postService.getSettings(accountName);
-    if (settings?.avatarUrl) {
-      this.avatarUrl.set(settings.avatarUrl);
+    if (settings?.settings.avatarUrl) {
+      this.avatarUrl.set(settings.settings.avatarUrl);
     }
   }
 
@@ -130,7 +129,7 @@ export class Account implements OnInit, OnDestroy {
     window.removeEventListener('piu-piu:load-posts', this.handlePostsUpdated as EventListener);
   }
 
-  posts = signal<PostData[]>([]);
+  posts = signal<MessageData[]>([]);
   gravatarCache = new Map<string, string>();
 
   signerMatchesAccount = computed(() => {
@@ -199,11 +198,11 @@ export class Account implements OnInit, OnDestroy {
     this.posts.set(verifiedPosts);
 
     // Preload gravatar URLs for all unique sender accounts
-    const uniqueAccounts = [...new Set(verifiedPosts.map(p => p.senderAccount))];
+    const uniqueAccounts = [...new Set(verifiedPosts.map(p => (p as MessageData).senderAccount))];
     for (const account of uniqueAccounts) {
       const settings = await this.postService.getSettings(account);
-      if (settings?.avatarUrl) {
-        this.gravatarCache.set(account, settings.avatarUrl);
+      if (settings?.settings.avatarUrl) {
+        this.gravatarCache.set(account, settings.settings.avatarUrl);
       } else {
         this.gravatarCache.set(account, '');
       }
@@ -272,7 +271,7 @@ export class Account implements OnInit, OnDestroy {
     const accountName = this.accountName();
     if (!accountName) return;
 
-    this.dialogService.open<PostData>(new PolymorpheusComponent(PostDialogComponent), {
+    this.dialogService.open<MessageData>(new PolymorpheusComponent(PostDialogComponent), {
       size: 'm',
       closable: true,
       dismissible: true,
@@ -374,8 +373,8 @@ export class Account implements OnInit, OnDestroy {
     try {
       // Load current settings to preserve avatar
       const currentSettings = await this.postService.getSettings(accountName);
-      const avatarUrl = currentSettings?.avatarUrl ?? '';
-      const avatarService = currentSettings?.avatarService ?? 'gravatar';
+      const avatarUrl = currentSettings?.settings.avatarUrl ?? '';
+      const avatarService = (currentSettings?.settings.avatarService ?? 'gravatar') as 'gravatar' | 'libravatar' | 'custom' | 'none';
 
       if (this.pushSubscription()) {
         // Unsubscribe
@@ -388,8 +387,9 @@ export class Account implements OnInit, OnDestroy {
         this.pushSubscription.set(null);
         // Update whoami to remove subscription
         this.roomService.updateWhoamiSubscription('');
-        // Update @settings with pushEnabled: false
-        await this.postService.saveSettings(signer, avatarUrl, avatarService, false);
+        // Update @settings with pushEnabled: false and broadcast
+        const settingsOff = await this.postService.saveSettings(signer, avatarUrl, avatarService, false);
+        if (settingsOff) await this.roomService.broadcastPost(settingsOff as unknown as MessageData);
         this.errorService.showSuccess('Push notifications disabled');
       } else {
         // Subscribe
@@ -416,8 +416,9 @@ export class Account implements OnInit, OnDestroy {
         // Update whoami in global room
         this.roomService.updateWhoamiSubscription(encrypted);
 
-        // Update @settings with pushEnabled: true
-        await this.postService.saveSettings(signer, avatarUrl, avatarService, true);
+        // Update @settings with pushEnabled: true and broadcast
+        const settingsOn = await this.postService.saveSettings(signer, avatarUrl, avatarService, true);
+        if (settingsOn) await this.roomService.broadcastPost(settingsOn as unknown as MessageData);
 
         this.errorService.showSuccess('Push notifications enabled');
       }
@@ -457,5 +458,9 @@ export class Account implements OnInit, OnDestroy {
 
   getGravatarUrl(senderAccount: string): string {
     return this.gravatarCache.get(senderAccount) ?? '';
+  }
+
+  getMessageData(post: MessageData): MessageData {
+    return post;
   }
 }

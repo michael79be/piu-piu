@@ -1,14 +1,14 @@
 import { Component, computed, inject, input, OnInit, OnDestroy, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { Router } from '@angular/router';
+import { Router, ActivatedRoute, NavigationEnd } from '@angular/router';
+import { filter } from 'rxjs/operators';
 import { TuiButton, TuiDropdown, TuiDataList, TuiHint, TuiDialogService } from '@taiga-ui/core';
 import { PolymorpheusComponent } from '@taiga-ui/polymorpheus';
 import { LaIconComponent, LaIconLibrary } from 'angular-line-awesome';
 import { lasEllipsisH, lasHome, larEdit, larUser, lasUsers, lasComment, lasPaperPlane, lasShieldAlt, lasUserSecret, lasUser, lasClock, lasBell, lasBellSlash, lasSpinner, lasUserPlus, lasRss, lasList, lasCog, lasRss as lasRssIcon } from 'angular-line-awesome/icons';
 import { AuthService } from '../auth/auth.service';
 import { PostService } from '../post/post.service';
-import { PostData } from '../models/post-data';
-import { SettingsData } from '../models/settings-data';
+import { MessageData } from '../models/post-data';
 import { RoomService } from '../room/room.service';
 import { ErrorService } from '../error/error.service';
 import { CryptoService } from '../crypto/crypto.service';
@@ -47,11 +47,14 @@ export class Menu implements OnInit, OnDestroy {
 
   showAccountMenu = signal(false);
 
-  isSignedIn = this.authService.isSignedIn;
+isSignedIn = this.authService.isSignedIn;
   storedSigner = this.authService.storedSigner;
   displayName = this.authService.displayName;
 
-pushSubscription = signal<PushSubscription | null>(null);
+  currentRoute = signal<string>('/');
+  private route = inject(ActivatedRoute);
+
+  pushSubscription = signal<PushSubscription | null>(null);
   pushSupported = signal(false);
   pushLoading = signal(false);
 
@@ -59,10 +62,18 @@ pushSubscription = signal<PushSubscription | null>(null);
 
   constructor() {
     this.library.addIcons([lasEllipsisH, lasHome, larEdit, larUser, lasUsers, lasComment, lasPaperPlane, lasShieldAlt, lasUserSecret, lasUser, lasClock, lasBell, lasBellSlash, lasSpinner, lasUserPlus, lasRss, lasList, lasCog, lasRssIcon]);
+    this.router.events.pipe(filter(e => e instanceof NavigationEnd)).subscribe(() => {
+      this.currentRoute.set(this.router.url);
+    });
   }
 
   goHome(): void {
-    this.router.navigateByUrl('/');
+    const accountName = this.storedSigner()?.account;
+    if (accountName && this.isSignedIn()) {
+      this.router.navigateByUrl(`/@${accountName}`);
+    } else {
+      this.router.navigateByUrl('/feed');
+    }
   }
 
   onFeed(): void {
@@ -84,8 +95,8 @@ pushSubscription = signal<PushSubscription | null>(null);
     if (!accountName) return;
 
     const settings = await this.postService.getSettings(accountName);
-    if (settings?.avatarUrl) {
-      this.avatarUrl.set(settings.avatarUrl);
+    if (settings?.settings.avatarUrl) {
+      this.avatarUrl.set(settings.settings.avatarUrl);
     }
   }
 
@@ -147,7 +158,7 @@ pushSubscription = signal<PushSubscription | null>(null);
   }
 
   private openPostDialogInternal(accountName: string): void {
-    this.dialogService.open<PostData>(new PolymorpheusComponent(PostDialogComponent), {
+    this.dialogService.open<MessageData>(new PolymorpheusComponent(PostDialogComponent), {
       size: 'm',
       closable: true,
       dismissible: true,
@@ -173,7 +184,7 @@ pushSubscription = signal<PushSubscription | null>(null);
         const settings = await this.postService.getSettings(accountName);
         if (settings) {
           const subscription = await this.postService.getSubscription(accountName);
-          this.pushSubscription.set(settings.pushEnabled && subscription ? subscription : null);
+          this.pushSubscription.set(settings.settings.pushEnabled && subscription ? subscription : null);
         }
       }
     });
@@ -220,7 +231,7 @@ pushSubscription = signal<PushSubscription | null>(null);
   private async resubscribe(accountName: string): Promise<void> {
     try {
       const vapidPublicKey = await this.vapidPublicKeyService.getPublicKey();
-      const applicationServerKey = this.urlBase64ToUint8Array(vapidPublicKey) as unknown as BufferSource;
+      const applicationServerKey = this.b64ToUint8Array(vapidPublicKey) as unknown as BufferSource;
       const registration = await navigator.serviceWorker.ready;
       
       const subscription = await registration.pushManager.subscribe({
@@ -255,8 +266,8 @@ pushSubscription = signal<PushSubscription | null>(null);
     try {
       // Load current settings to preserve avatar
       const currentSettings = await this.postService.getSettings(accountName);
-      const avatarUrl = currentSettings?.avatarUrl ?? '';
-      const avatarService = currentSettings?.avatarService ?? 'gravatar';
+      const avatarUrl = currentSettings?.settings.avatarUrl ?? '';
+      const avatarService = currentSettings?.settings.avatarService ?? 'gravatar';
 
       if (this.pushSubscription()) {
         const registration = await navigator.serviceWorker.ready;
@@ -267,13 +278,14 @@ pushSubscription = signal<PushSubscription | null>(null);
         await this.postService.saveSubscription(accountName, null);
         this.pushSubscription.set(null);
         this.roomService.updateWhoamiSubscription('');
-        // Update @settings with pushEnabled: false
-        await this.postService.saveSettings(signer, avatarUrl, avatarService, false);
+        // Update @settings with pushEnabled: false and broadcast
+        const settingsOff = await this.postService.saveSettings(signer, avatarUrl, avatarService, false);
+        if (settingsOff) await this.roomService.broadcastPost(settingsOff as unknown as MessageData);
         this.errorService.showSuccess('Push notifications disabled');
       } else {
         const registration = await navigator.serviceWorker.ready;
         const vapidPublicKey = await this.vapidPublicKeyService.getPublicKey();
-        const applicationServerKey = this.urlBase64ToUint8Array(vapidPublicKey) as unknown as BufferSource;
+        const applicationServerKey = this.b64ToUint8Array(vapidPublicKey) as unknown as BufferSource;
         const subscription = await registration.pushManager.subscribe({
           userVisibleOnly: true,
           applicationServerKey,
@@ -290,12 +302,13 @@ pushSubscription = signal<PushSubscription | null>(null);
         this.pushSubscription.set(subscription);
         this.roomService.updateWhoamiSubscription(encrypted);
 
-        // Update @settings with pushEnabled: true
-        await this.postService.saveSettings(signer, avatarUrl, avatarService, true);
+        // Update @settings with pushEnabled: true and broadcast
+        const settingsOn = await this.postService.saveSettings(signer, avatarUrl, avatarService, true);
+        if (settingsOn) await this.roomService.broadcastPost(settingsOn as unknown as MessageData);
 
         this.errorService.showSuccess('Push notifications enabled');
       }
-    } catch (error) {
+    } catch (error: unknown) {
       console.error('Push toggle failed:', error);
       this.errorService.showError('Failed to toggle push notifications');
     } finally {
@@ -303,14 +316,14 @@ pushSubscription = signal<PushSubscription | null>(null);
     }
   }
 
-  private urlBase64ToUint8Array(base64String: string): Uint8Array {
-    const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
-    const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
-    const rawData = atob(base64);
-    const outputArray = new Uint8Array(rawData.length);
-    for (let i = 0; i < rawData.length; ++i) {
-      outputArray[i] = rawData.charCodeAt(i);
+  private b64ToUint8Array(b64: string): Uint8Array {
+    const pad = '='.repeat((4 - (b64.length % 4)) % 4);
+    const b = (b64 + pad).replace(/-/g, '+').replace(/_/g, '/');
+    const raw = atob(b);
+    const out = new Uint8Array(raw.length);
+    for (let i = 0; i < raw.length; ++i) {
+      out[i] = raw.charCodeAt(i);
     }
-    return outputArray;
+    return out;
   }
 }

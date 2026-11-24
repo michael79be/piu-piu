@@ -7,17 +7,17 @@ import { POLYMORPHEUS_CONTEXT } from '@taiga-ui/polymorpheus';
 import { LaIconComponent, LaIconLibrary } from 'angular-line-awesome';
 import { lasBell, lasEnvelope, lasSave, lasSpinner, lasTimes, lasUser, lasGlobe, lasBan } from 'angular-line-awesome/icons';
 import { PostService } from '../post/post.service';
-import { SettingsData } from '../models/settings-data';
 import { AuthService } from '../auth/auth.service';
 import { ErrorService } from '../error/error.service';
 import { RoomService } from '../room/room.service';
 import { RsaPublicKeyService } from '../crypto/rsa-public-key.service';
 import { VapidPublicKeyService } from '../crypto/vapid-public-key.service';
 import { CryptoService } from '../crypto/crypto.service';
+import { MessageData } from '../models/post-data';
 
-type AvatarService = 'gravatar' | 'libravatar' | 'none';
+export type AvatarService = 'gravatar' | 'libravatar' | 'custom' | 'none';
 
-const AVATAR_SERVICE_URLS: Record<Exclude<AvatarService, 'none'>, string> = {
+const AVATAR_SERVICE_URLS: Record<Exclude<AvatarService, 'none' | 'custom'>, string> = {
   gravatar: 'https://0.gravatar.com/avatar/',
   libravatar: 'https://seccdn.libravatar.org/avatar/',
 };
@@ -25,12 +25,14 @@ const AVATAR_SERVICE_URLS: Record<Exclude<AvatarService, 'none'>, string> = {
 const AVATAR_SERVICE_LABELS: Record<AvatarService, string> = {
   gravatar: 'Gravatar',
   libravatar: 'Libravatar',
+  custom: 'Custom URL',
   none: 'No avatar',
 };
 
 const AVATAR_SERVICE_ICONS: Record<AvatarService, string> = {
   gravatar: 'lasGlobe',
   libravatar: 'lasUser',
+  custom: 'lasLink',
   none: 'lasBan',
 };
 
@@ -59,14 +61,50 @@ export class SettingsDialogComponent {
   readonly pushLoading = signal<boolean>(false);
   readonly currentAvatarUrl = signal<string | null>(null);
   readonly currentAvatarService = signal<AvatarService>('gravatar');
+  readonly customAvatarUrl = signal<string>('');
 
   readonly pushSupported = signal<boolean>(false);
-  readonly avatarServiceOptions = ['gravatar', 'libravatar', 'none'] as AvatarService[];
+  readonly avatarServiceOptions = ['gravatar', 'libravatar', 'custom', 'none'] as AvatarService[];
+
+  readonly inputIcon = computed(() => {
+    const service = this.avatarService() || 'none';
+    if (service === 'custom') return 'lasLink';
+    if (service === 'none') return 'lasBan';
+    return 'lasEnvelope';
+  });
+
+  readonly inputLabel = computed(() => {
+    const service = this.avatarService() || 'none';
+    if (service === 'custom') return 'Custom URL';
+    if (service === 'none') return 'No avatar';
+    return 'Email';
+  });
+
+  readonly inputType = computed(() => {
+    const service = this.avatarService() || 'none';
+    return service === 'custom' ? 'url' : 'email';
+  });
+
+  readonly inputValue = computed(() => {
+    const service = this.avatarService() || 'none';
+    return service === 'custom' ? this.customAvatarUrl() : this.email();
+  });
+
+  readonly inputPlaceholder = computed(() => {
+    const service = this.avatarService() || 'none';
+    if (service === 'custom') return 'Enter avatar image URL';
+    if (service === 'none') return 'No avatar';
+    return 'Enter email for avatar';
+  });
 
   readonly previewUrl = computed(() => {
     const email = this.email().trim().toLowerCase();
-    const service = this.avatarService();
-    if (!email || service === 'none') return null;
+    const service = this.avatarService() || 'none';
+    if (service === 'custom') {
+      const customUrl = this.customAvatarUrl().trim();
+      return customUrl ? customUrl : null;
+    }
+    if (service === 'none') return null;
     const encoder = new TextEncoder();
     const hash = Array.from(new Uint8Array(encoder.encode(email)), b => b.toString(16).padStart(2, '0')).join('');
     const baseUrl = AVATAR_SERVICE_URLS[service];
@@ -89,14 +127,17 @@ export class SettingsDialogComponent {
 
     const settings = await this.postService.getSettings(accountName);
     if (settings) {
-      this.pushEnabled.set(settings.pushEnabled);
-      if (settings.avatarUrl) {
-        this.currentAvatarUrl.set(settings.avatarUrl);
-        this.currentAvatarService.set(settings.avatarService);
-        this.avatarService.set(settings.avatarService);
+      this.pushEnabled.set(settings.settings.pushEnabled);
+      if (settings.settings.avatarUrl) {
+        this.currentAvatarUrl.set(settings.settings.avatarUrl);
+        this.currentAvatarService.set(settings.settings.avatarService);
+        this.avatarService.set(settings.settings.avatarService);
+        if (settings.settings.avatarService === 'custom') {
+          this.customAvatarUrl.set(settings.settings.avatarUrl);
+        }
       }
-      if (settings.avatarService) {
-        this.avatarService.set(settings.avatarService);
+      if (settings.settings.avatarService) {
+        this.avatarService.set(settings.settings.avatarService);
       }
     }
 
@@ -171,12 +212,18 @@ export class SettingsDialogComponent {
 
     this.loading.set(true);
 
+    const service = this.avatarService() || 'none';
     const email = this.email().trim().toLowerCase();
-    const service = this.avatarService();
     let avatarUrl = this.currentAvatarUrl();
     let avatarService = this.currentAvatarService();
 
-    if (email && service !== 'none') {
+    if (service === 'custom') {
+      const customUrl = this.customAvatarUrl().trim();
+      if (customUrl) {
+        avatarUrl = customUrl;
+        avatarService = 'custom';
+      }
+    } else if (email && service !== 'none') {
       const encoder = new TextEncoder();
       const hashBuffer = await window.crypto.subtle.digest('SHA-256', encoder.encode(email));
       const bytes = new Uint8Array(hashBuffer);
@@ -184,20 +231,22 @@ export class SettingsDialogComponent {
       const baseUrl = AVATAR_SERVICE_URLS[service];
       avatarUrl = baseUrl ? `${baseUrl}${hash}?d=404` : '';
       avatarService = service;
-    } else if (service === 'none') {
+    } else if (service === 'none' || !service) {
       // User explicitly chose no avatar - clear it
       avatarUrl = '';
-      avatarService = 'gravatar';
+      avatarService = 'none';
     }
     // If email is empty and service is not 'none', keep existing avatarUrl and avatarService
 
-    const saveAvatarService: 'gravatar' | 'libravatar' = service === 'none' ? 'gravatar' : (avatarService as 'gravatar' | 'libravatar');
+    const saveAvatarService = (service === 'none' || !service) ? 'gravatar' : (avatarService as 'gravatar' | 'libravatar');
     const settings = await this.postService.saveSettings(signer, avatarUrl ?? '', saveAvatarService, this.pushEnabled());
     this.loading.set(false);
 
     if (settings) {
+      // Broadcast settings to peers
+      await this.roomService.broadcastPost(settings as unknown as MessageData);
       this.errorService.showError('Settings saved');
-      this.context['completeWith']({ avatarUrl: settings.avatarUrl, avatarService: settings.avatarService, pushEnabled: settings.pushEnabled });
+      this.context['completeWith']({ avatarUrl: settings.settings.avatarUrl, avatarService: settings.settings.avatarService, pushEnabled: settings.settings.pushEnabled });
     } else {
       this.errorService.showError('Failed to save settings');
     }
@@ -205,6 +254,16 @@ export class SettingsDialogComponent {
 
   onCancel(): void {
     this.context['$implicit'].complete();
+  }
+
+  onInputChange(event: Event): void {
+    const value = (event.target as HTMLInputElement).value;
+    const service = this.avatarService() || 'none';
+    if (service === 'custom') {
+      this.customAvatarUrl.set(value);
+    } else {
+      this.email.set(value);
+    }
   }
 
   private urlBase64ToUint8Array(base64String: string): Uint8Array {

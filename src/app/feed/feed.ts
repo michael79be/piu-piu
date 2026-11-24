@@ -7,9 +7,7 @@ import { lasClock, lasShieldAlt, lasList, lasSpinner, lasRss, lasUser } from 'an
 import { RoomService } from '../room/room.service';
 import { AuthService } from '../auth/auth.service';
 import { PostService } from '../post/post.service';
-import { PostData } from '../models/post-data';
-import { FollowData } from '../models/follow-data';
-import { SettingsData } from '../models/settings-data';
+import { MessageData } from '../models/post-data';
 import { PostDialogComponent } from '../post/post-dialog/post-dialog.component';
 import { CryptoService } from '../crypto/crypto.service';
 
@@ -29,13 +27,16 @@ export class Feed implements OnInit, OnDestroy {
   private cryptoService = inject(CryptoService);
   private library = inject(LaIconLibrary);
 
-  posts = signal<PostData[]>([]);
+  posts = signal<MessageData[]>([]);
   loading = signal(false);
-  gravatarCache = new Map<string, string>();
+  gravatarCache = signal<Map<string, string>>(new Map());
+  followedAccounts = signal<string[]>([]);
 
   private handlePostsUpdated = (event: CustomEvent) => {
     const detail = event.detail;
     if (!detail?.accountName) {
+      this.loadFeed();
+    } else if (this.followedAccounts().includes(detail.accountName)) {
       this.loadFeed();
     }
   };
@@ -81,13 +82,14 @@ export class Feed implements OnInit, OnDestroy {
       }
 
       const followedAccounts = Object.keys(followData.follows);
+      this.followedAccounts.set(followedAccounts);
       if (followedAccounts.length === 0) {
         this.posts.set([]);
         return;
       }
 
       // Collect posts from all followed accounts
-      const allPosts: PostData[] = [];
+      const allPosts: MessageData[] = [];
       for (const targetAccount of followedAccounts) {
         const verifiedPosts = await this.postService.getVerifiedPosts(targetAccount);
         allPosts.push(...verifiedPosts);
@@ -99,14 +101,16 @@ export class Feed implements OnInit, OnDestroy {
 
       // Preload gravatar URLs for all unique sender accounts
       const uniqueAccounts = [...new Set(allPosts.map(p => p.senderAccount))];
+      const newCache = new Map(this.gravatarCache());
       for (const account of uniqueAccounts) {
         const settings = await this.postService.getSettings(account);
-        if (settings?.avatarUrl) {
-          this.gravatarCache.set(account, settings.avatarUrl);
+        if (settings?.settings?.avatarUrl) {
+          newCache.set(account, settings.settings.avatarUrl);
         } else {
-          this.gravatarCache.set(account, '');
+          newCache.set(account, '');
         }
       }
+      this.gravatarCache.set(newCache);
     } catch (e) {
       console.error('Failed to load feed:', e);
       this.posts.set([]);
@@ -119,7 +123,7 @@ export class Feed implements OnInit, OnDestroy {
     const accountName = this.authService.storedSigner()?.account;
     if (!accountName) return;
 
-    this.dialogService.open<PostData>(new PolymorpheusComponent(PostDialogComponent), {
+    this.dialogService.open<MessageData>(new PolymorpheusComponent(PostDialogComponent), {
       size: 'm',
       closable: true,
       dismissible: true,
@@ -148,10 +152,30 @@ export class Feed implements OnInit, OnDestroy {
   }
 
   getAvatarUrl(senderAccount: string): string {
-    return this.gravatarCache.get(senderAccount) ?? '';
+    const cached = this.gravatarCache().get(senderAccount);
+    if (cached !== undefined) return cached;
+    // Fetch avatar asynchronously if not cached
+    this.fetchAndCacheAvatar(senderAccount);
+    return '';
   }
 
-  navigateToPost(post: PostData): void {
+  private async fetchAndCacheAvatar(senderAccount: string): Promise<void> {
+    if (this.gravatarCache().has(senderAccount)) return;
+    const settings = await this.postService.getSettings(senderAccount);
+    const newCache = new Map(this.gravatarCache());
+    if (settings?.settings?.avatarUrl) {
+      newCache.set(senderAccount, settings.settings.avatarUrl);
+    } else {
+      newCache.set(senderAccount, '');
+    }
+    this.gravatarCache.set(newCache);
+  }
+
+  getMessageData(post: MessageData): MessageData {
+    return post;
+  }
+
+  navigateToPost(post: MessageData): void {
     this.router.navigateByUrl(`/@${post.senderAccount}`).then(() => {
       setTimeout(() => {
         const element = document.getElementById(`post-${post.uuid}`);

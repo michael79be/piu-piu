@@ -1,7 +1,7 @@
 import { ProfileData } from './profile-data';
-import { Signed } from './signed';
+import { Signed } from './post-data';
 
-export interface SignerInfo extends ProfileData, Signed {
+export interface SignerInfo extends ProfileData {
   account: string;
   providerPrefix?: string;
   subscription?: string;

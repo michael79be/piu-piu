@@ -1,20 +1,9 @@
 import type { MessageAction } from '@trystero-p2p/core';
-
-export interface PostData {
-  uuid: string;
-  sender: string;
-  senderAccount: string;
-  timestamp: number;
-  content: string;
-  publicKey: string;
-  signature: string;
-  authenticatorData: string;
-  clientData: string;
-}
+import { MessageData } from '../models/post-data';
 
 export interface ProvidePayload {
   accountName: string;
-  posts: PostData[];
+  posts: MessageData[];
 }
 
 export interface ProvideAction {

@@ -3,7 +3,7 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { TuiButton, TuiTextfield } from '@taiga-ui/core';
 import { POLYMORPHEUS_CONTEXT } from '@taiga-ui/polymorpheus';
-import { PostData } from '../../models/post-data';
+import { MessageData } from '../../models/post-data';
 import { PostService } from '../../post/post.service';
 import { TuiTextarea } from '@taiga-ui/kit';
 import { AuthService } from '../../auth/auth.service';
@@ -14,7 +14,7 @@ export interface PostDialogData {
 }
 
 export interface PostDialogContext {
-  completeWith: (value: PostData | null) => void;
+  completeWith: (value: MessageData | null) => void;
   data: PostDialogData;
 }
 

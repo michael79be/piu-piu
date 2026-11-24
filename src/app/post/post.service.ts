@@ -1,11 +1,11 @@
 import { Injectable, inject } from '@angular/core';
 import { openDB, DBSchema, IDBPDatabase } from 'idb';
 import { CryptoService } from '../crypto/crypto.service';
-import { PostData } from '../models/post-data';
-import { FollowData } from '../models/follow-data';
+import { MessageData, SettingsData, FollowData, MetaData, Signed } from '../models/post-data';
 import { SubscriptionData } from '../models/subscription-data';
-import { SettingsData } from '../models/settings-data';
 import { SignerInfo } from '../models/signer-info';
+import { v7 as uuidv7 } from 'uuid';
+import { AvatarService } from '../settings/settings-dialog';
 
 interface PostsDB extends DBSchema {
   posts: {
@@ -43,17 +43,17 @@ export class PostService {
     return this.dbCache.get(accountName)!;
   }
 
-  private createSigningString(post: Omit<PostData, 'signature' | 'authenticatorData' | 'clientData' | 'publicKey'>): string {
+  private createSigningString(post: MessageData): string {
     return `${post.uuid}:${post.senderAccount}:${post.timestamp}:${post.content}`;
   }
 
-  async createPost(signer: SignerInfo, content: string): Promise<PostData | null> {
+  async createPost(signer: SignerInfo, content: string): Promise<MessageData | null> {
     if (!signer) return null;
 
-    const uuid = crypto.randomUUID();
+    const uuid = uuidv7();
     const timestamp = Date.now();
 
-    const postData: Omit<PostData, 'signature' | 'authenticatorData' | 'clientData'> = {
+    const messageData: MessageData = { 
       uuid,
       sender: signer.username,
       senderAccount: signer.account,
@@ -62,7 +62,7 @@ export class PostService {
       publicKey: signer.publicKey,
     };
 
-    const signingString = this.createSigningString(postData);
+    const signingString = this.createSigningString(messageData);
     const challenge = await this.hashChallenge(signingString);
 
     console.log('[createPost] signingString:', signingString);
@@ -92,8 +92,8 @@ export class PostService {
         username = decoder.decode(response.userHandle) ?? signer.username;
       }
 
-      const post: PostData = {
-        ...postData,
+      const post: MessageData = {
+        ...messageData,
         sender: username,
         signature: this.bytesToBase64(signature),
         authenticatorData: this.bytesToBase64(authData),
@@ -116,15 +116,19 @@ export class PostService {
     return new Uint8Array(hash);
   }
 
-  async getPost(accountName: string, uuid: string): Promise<PostData | null> {
+  async getPost(accountName: string, uuid: string): Promise<MessageData | null> {
     const db = await this.getDB(accountName);
     const data = await db.get('posts', uuid);
     if (!data) return null;
     const post = JSON.parse(data);
-    return this.deserializePost(post);
+    const result = this.deserializePost(post);
+    if ('sender' in result) {
+      return result as MessageData;
+    }
+    return null;
   }
 
-  async getAllPosts(accountName: string): Promise<PostData[]> {
+  async getAllPosts(accountName: string): Promise<MessageData[]> {
     const db = await this.getDB(accountName);
     const tx = db.transaction('posts', 'readonly');
     const store = tx.objectStore('posts');
@@ -132,25 +136,33 @@ export class PostService {
     const allValues = await store.getAll();
     await tx.done;
     
-    const posts: PostData[] = [];
+    const posts: MessageData[] = [];
     for (let i = 0; i < allKeys.length; i++) {
       if (typeof allKeys[i] === 'string' && allKeys[i].startsWith('@')) continue;
-      posts.push(this.deserializePost(JSON.parse(allValues[i])));
+      const post = this.deserializePost(JSON.parse(allValues[i]));
+      if ('sender' in post) {
+        posts.push(post as MessageData);
+      }
     }
     return posts.sort((a, b) => b.timestamp - a.timestamp);
   }
 
-  async getMeta(accountName: string): Promise<(SettingsData | FollowData | { avatarUrl: string; avatarService: string })[]> {
+  async getMeta(accountName: string): Promise<(SettingsData | FollowData)[]> {
+    console.log('[getMeta] START account:', accountName);
     const db = await this.getDB(accountName);
+    console.log('[getMeta] got db');
     const tx = db.transaction('posts', 'readonly');
     const store = tx.objectStore('posts');
     const allKeys = await store.getAllKeys();
     const allValues = await store.getAll();
+    console.log('[getMeta] waiting for tx.done');
     await tx.done;
+    console.log('[getMeta] tx.done resolved');
     
-    console.log('[getMeta] account:', accountName, 'allKeys:', allKeys.filter(k => typeof k === 'string' && k.startsWith('@')));
+    console.log('[getMeta] account:', accountName, 'allKeys:', allKeys);
+    console.log('[getMeta] @ keys:', allKeys.filter(k => typeof k === 'string' && k.startsWith('@')));
     
-    const results: (SettingsData | FollowData | { avatarUrl: string; avatarService: string })[] = [];
+    const results: (SettingsData | FollowData)[] = [];
     for (let i = 0; i < allKeys.length; i++) {
       const key = allKeys[i];
       const value = allValues[i];
@@ -172,7 +184,7 @@ export class PostService {
     });
   }
 
-  private deserializePost(post: Record<string, unknown>): PostData {
+  private deserializePost(post: Record<string, unknown>): MessageData | SettingsData | FollowData | Signed {
     console.log('[deserializePost]', {
       keys: Object.keys(post),
       hasSignature: !!post['signature'],
@@ -187,7 +199,7 @@ export class PostService {
       authenticatorData: post['authenticatorData'] as string,
       clientData: post['clientData'] as string,
       publicKey: post['publicKey'] as string,
-    } as PostData;
+    };
     
     console.log('[deserializePost] result', {
       signatureLength: result.signature?.length,
@@ -263,7 +275,7 @@ export class PostService {
     return new Uint8Array(hash);
   }
 
-  async saveSettings(signer: SignerInfo, avatarUrl: string, avatarService: 'gravatar' | 'libravatar', pushEnabled: boolean): Promise<SettingsData | null> {
+  async saveSettings(signer: SignerInfo, avatarUrl: string, avatarService: AvatarService, pushEnabled: boolean): Promise<SettingsData | null> {
     if (!signer) return null;
 
     const challenge = await this.hashSettingsChallenge(avatarUrl, avatarService, pushEnabled);
@@ -289,17 +301,22 @@ export class PostService {
       }
 
       const settingsData: SettingsData = {
-        avatarUrl,
-        avatarService,
-        pushEnabled,
+        uuid: MetaData.Settings,
+        settings: {
+          avatarUrl,
+          avatarService,
+          pushEnabled,
+        },
         signature: this.bytesToBase64(signature),
         authenticatorData: this.bytesToBase64(authData),
         clientData: this.bytesToBase64(clientData),
+        publicKey: signer.publicKey,
       };
 
       const db = await this.getDB(signer.account);
       await db.put('posts', JSON.stringify(settingsData), '@settings');
 
+      // Broadcast settings to peers
       return settingsData;
     } catch (e) {
       console.error('WebAuthn sign failed for settings:', e);
@@ -316,7 +333,7 @@ export class PostService {
   }
 
   private createFollowSigningString(follows: Record<string, string>): string {
-    const sortedKeys = Object.keys(follows).sort();
+    const sortedKeys = Object.keys(follows ?? {}).sort();
     return sortedKeys.map(k => `${k}:${follows[k]}`).join('|');
   }
 
@@ -365,10 +382,12 @@ export class PostService {
       }
 
       const followData: FollowData = {
+        uuid: MetaData.Follow,
         follows,
         signature: this.bytesToBase64(signature),
         authenticatorData: this.bytesToBase64(authData),
         clientData: this.bytesToBase64(clientData),
+        publicKey: signer.publicKey,
       };
 
       const db = await this.getDB(signer.account);
@@ -407,13 +426,15 @@ export class PostService {
       const signature = response.signature ? new Uint8Array(response.signature) : new Uint8Array(0);
 
       const followData: FollowData = {
+        uuid: MetaData.Follow,
         follows,
         signature: this.bytesToBase64(signature),
         authenticatorData: this.bytesToBase64(authData),
         clientData: this.bytesToBase64(clientData),
+        publicKey: signer.publicKey,
       };
 
-const db = await this.getDB(signer.account);
+      const db = await this.getDB(signer.account);
       if (Object.keys(follows).length === 0) {
         await db.delete('posts', '@follow');
       } else {
@@ -431,18 +452,24 @@ const db = await this.getDB(signer.account);
     const db = await this.getDB(accountName);
     const data = await db.get('posts', '@follow');
     if (!data) return null;
-    return JSON.parse(data) as FollowData;
+    const parsed = JSON.parse(data) as FollowData;
+    // Return null if follows is empty (corrupted data)
+    if (!parsed.follows || Object.keys(parsed.follows).length === 0) return null;
+    return parsed;
   }
 
   async verifyFollow(followData: FollowData, publicKey: string): Promise<boolean> {
     if (!followData.signature || followData.signature.length === 0) return false;
 
-    const follows = followData.follows;
+    const follows = followData.follows ?? {};
+    const keys = Object.keys(follows);
+    if (keys.length === 0) return false; // No follows to verify
+
     const expectedChallenge = await this.hashFollowChallenge(follows);
 
     try {
-      const clientDataBytes = this.base64ToBytes(followData.clientData);
-      const authDataBytes = this.base64ToBytes(followData.authenticatorData);
+      const clientDataBytes = this.base64ToBytes(followData.clientData ?? '');
+      const authDataBytes = this.base64ToBytes(followData.authenticatorData ?? '');
       const signatureBytes = this.base64ToBytes(followData.signature);
       const publicKeyBytes = this.base64ToBytes(publicKey);
 
@@ -500,10 +527,12 @@ const db = await this.getDB(signer.account);
     return targetAccount in followData.follows;
   }
 
-  async verifyPost(post: PostData): Promise<boolean> {
+  async verifyPost(post: MessageData): Promise<boolean> {
     if (!post.signature || post.signature.length === 0) return false;
 
-    const postWithoutSig: Omit<PostData, 'signature' | 'authenticatorData' | 'clientData' | 'publicKey'> = {
+    if (!post.sender) return false;
+
+    const postWithoutSig: MessageData = {
       uuid: post.uuid,
       sender: post.sender,
       senderAccount: post.senderAccount,
@@ -516,10 +545,10 @@ const db = await this.getDB(signer.account);
 
     try {
       // Decode base64 fields
-      const clientDataBytes = this.base64ToBytes(post.clientData);
-      const authDataBytes = this.base64ToBytes(post.authenticatorData);
+      const clientDataBytes = this.base64ToBytes(post.clientData ?? '');
+      const authDataBytes = this.base64ToBytes(post.authenticatorData ?? '');
       const signatureBytes = this.base64ToBytes(post.signature);
-      const publicKeyBytes = this.base64ToBytes(post.publicKey);
+      const publicKeyBytes = this.base64ToBytes(post.publicKey ?? '');
 
       const clientDataHash = new Uint8Array(
         await window.crypto.subtle.digest('SHA-256', clientDataBytes as BufferSource)
@@ -542,17 +571,19 @@ const db = await this.getDB(signer.account);
         console.error('[verifyPost] Failed to parse clientDataJSON:', e);
       }
 
-      console.log('[verifyPost] post uuid:', post.uuid);
-      console.log('[verifyPost] signingString:', signingString);
-      console.log('[verifyPost] expectedChallenge length:', expectedChallenge.length);
-      console.log('[verifyPost] actualChallenge length:', actualChallenge?.length);
-      console.log('[verifyPost] challenge match:', actualChallenge ? this.bytesEqual(expectedChallenge, actualChallenge) : 'no challenge in clientData');
-      console.log('[verifyPost] authData length:', authDataBytes.length);
-      console.log('[verifyPost] clientData length:', clientDataBytes.length);
-      console.log('[verifyPost] clientDataHash length:', clientDataHash.length);
-      console.log('[verifyPost] signedData length:', signedData.length);
-      console.log('[verifyPost] signature length:', signatureBytes.length);
-      console.log('[verifyPost] publicKey length:', publicKeyBytes.length);
+      console.log('[verifyPost]', {
+        uuid: post.uuid,
+        signingString,
+        expectedChallengeLength: expectedChallenge.length,
+        actualChallengeLength: actualChallenge?.length,
+        challengeMatch: actualChallenge ? this.bytesEqual(expectedChallenge, actualChallenge) : 'no challenge in clientData',
+        authDataLength: authDataBytes.length,
+        clientDataLength: clientDataBytes.length,
+        clientDataHashLength: clientDataHash.length,
+        signedDataLength: signedData.length,
+        signatureLength: signatureBytes.length,
+        publicKeyLength: publicKeyBytes.length,
+      });
 
       if (!actualChallenge || !this.bytesEqual(expectedChallenge, actualChallenge)) {
         console.error('[verifyPost] Challenge mismatch!');
@@ -563,7 +594,7 @@ const db = await this.getDB(signer.account);
       const cryptoKey = await this.cryptoService.importPublicKey(publicKeyBase64);
       const rawSignature = this.cryptoService.derToRawSignature(signatureBytes);
 
-      console.log('[verifyPost] rawSignature length:', rawSignature.length);
+      console.log('[verifyPost] rawSignature', { length: rawSignature.length });
 
       return await window.crypto.subtle.verify(
         { name: 'ECDSA', hash: { name: 'SHA-256' } },
@@ -596,10 +627,10 @@ const db = await this.getDB(signer.account);
     return true;
   }
 
-  async getVerifiedPosts(accountName: string): Promise<PostData[]> {
-    const allPosts = await this.getAllPosts(accountName);
+  async getVerifiedPosts(accountName: string): Promise<MessageData[]> {
+    const allPosts = await this.getAllPostsWithFullData(accountName);
     console.log('[getVerifiedPosts] total posts:', allPosts.length);
-    const verifiedPosts: PostData[] = [];
+    const verifiedPosts: MessageData[] = [];
     for (const post of allPosts) {
       console.log('[getVerifiedPosts] checking post:', post.uuid);
       if (await this.verifyPost(post)) {
@@ -610,5 +641,24 @@ const db = await this.getDB(signer.account);
       }
     }
     return verifiedPosts;
+  }
+
+  async getAllPostsWithFullData(accountName: string): Promise<MessageData[]> {
+    const db = await this.getDB(accountName);
+    const tx = db.transaction('posts', 'readonly');
+    const store = tx.objectStore('posts');
+    const allKeys = await store.getAllKeys();
+    const allValues = await store.getAll();
+    await tx.done;
+    
+    const posts: MessageData[] = [];
+    for (let i = 0; i < allKeys.length; i++) {
+      if (typeof allKeys[i] === 'string' && allKeys[i].startsWith('@')) continue;
+      const post = this.deserializePost(JSON.parse(allValues[i]));
+      if ('sender' in post) {
+        posts.push(post as MessageData);
+      }
+    }
+    return posts.sort((a, b) => b.timestamp - a.timestamp);
   }
 }

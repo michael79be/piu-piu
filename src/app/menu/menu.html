@@ -2,27 +2,40 @@
   <div class="ps-2 mb-3 cursor-pointer" (click)="goHome()" tuiHintDirection="end" tuiHint="Home">
     <img src="apple-touch-icon.png" alt="Piu-Piu" class="w-12 h-12 rounded-full bg-white p-1 hover:opacity-80 transition-opacity cursor-pointer" />
   </div>
-  <nav class="flex-1">
-    <button tuiButton appearance="flat" size="m" class="w-full justify-start px-3 py-2 mb-2" (click)="onFeed()"
-    tuiHintDirection="end" tuiHint="Feed">
-      <la-icon [icon]="['las', 'rss']" size="2x"></la-icon>
-      <span class="max-sm:hidden">Feed</span>
-    </button>
-    @if (canPost()) {
-      <button tuiButton appearance="flat" size="m" class="w-full justify-start px-3 py-2 mb-2" (click)="openPostDialog()"
-      tuiHintDirection="end" tuiHint="Post">
-        <la-icon [icon]="['lar', 'edit']" size="2x"></la-icon>
-        <span class="max-sm:hidden">Post</span>
+<nav class="flex-1">
+      <button tuiButton appearance="flat" size="m" class="w-full justify-start px-3 py-2 mb-2" (click)="goHome()"
+      tuiHintDirection="end" tuiHint="Home"
+      [class.bg-blue-50]="currentRoute().startsWith('/@')"
+      [class.text-blue-700]="currentRoute().startsWith('/@')"
+      [class.border-l-2]="currentRoute().startsWith('/@')"
+      [class.border-blue-500]="currentRoute().startsWith('/@')">
+        <la-icon [icon]="['las', 'home']" size="2x"></la-icon>
+        <span class="max-sm:hidden">Home</span>
       </button>
-    }
-  </nav>
+      <button tuiButton appearance="flat" size="m" class="w-full justify-start px-3 py-2 mb-2" (click)="onFeed()"
+      tuiHintDirection="end" tuiHint="Feed"
+      [class.bg-blue-50]="currentRoute() === '/feed'"
+      [class.text-blue-700]="currentRoute() === '/feed'"
+      [class.border-l-2]="currentRoute() === '/feed'"
+      [class.border-blue-500]="currentRoute() === '/feed'">
+        <la-icon [icon]="['las', 'rss']" size="2x"></la-icon>
+        <span class="max-sm:hidden">Feed</span>
+      </button>
+      @if (canPost()) {
+        <button tuiButton appearance="flat" size="m" class="w-full justify-start px-3 py-2 mb-2" (click)="openPostDialog()"
+        tuiHintDirection="end" tuiHint="Post">
+          <la-icon [icon]="['lar', 'edit']" size="2x"></la-icon>
+          <span class="max-sm:hidden">Post</span>
+        </button>
+      }
+    </nav>
 
   <div tuiDropdown #dropdown="tuiDropdown" [tuiDropdownOpen]="showAccountMenu()">
   <div [tuiDropdown]="content">
     <button tuiButton appearance="flat" tuiDropdownAuto tuiDropdownRole="menu" type="button" [tuiDropdown]="content" class="w-full justify-start"
     tuiHintDirection="end" tuiHint="@{{ displayName() }}">
       @if (avatarUrl()) {
-        <img [src]="avatarUrl()" alt="@{{ displayName() }}" onerror="this.style.display='none'" />
+        <img [src]="avatarUrl()" alt="@{{ displayName() }}" onerror="this.style.display='none'" class="w-8 h-8 rounded-full bg-gray-100 p-1" />
       } @else {
         <la-icon [icon]="['lar', 'user']" size="2x" class="max-sm:ms-[-0.25em]"></la-icon>
       }
