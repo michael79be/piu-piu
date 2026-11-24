@@ -124,7 +124,7 @@ async function checkAccountSubscription(accountName) {
     console.log('[SW] DB opened, object stores:', Array.from(db.objectStoreNames));
     const data = await dbGet(db, 'posts', '@subscription');
     console.log('[SW] Subscription data found:', !!data);
-    return !!subscription;
+    return !!data;
   } catch (error) {
     console.error('[SW] Failed to check subscription:', error);
     return false;

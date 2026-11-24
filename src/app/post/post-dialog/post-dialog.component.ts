@@ -23,6 +23,14 @@ export interface PostDialogContext {
   standalone: true,
   imports: [CommonModule, FormsModule, TuiButton, TuiTextfield, TuiTextarea],
   templateUrl: './post-dialog.component.html',
+  styles: [`
+    :host {
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+      width: 100%;
+    }
+  `]
 })
 export class PostDialogComponent {
   private postService = inject(PostService);

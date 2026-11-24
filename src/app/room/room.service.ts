@@ -145,7 +145,7 @@ export class RoomService {
   }
 
   async joinGlobalRoom(): Promise<void> {
-    if (this.globalRoomInstance()) {
+    if (this.globalRoomInstance() || this.isGlobalConnected()) {
       return;
     }
 
@@ -169,7 +169,7 @@ export class RoomService {
         const peer = this.globalPeers().find(p => p.id === context.peerId);
         if (peer) {
           this.globalPeers.update(current =>
-            current.map(p => p.id === context.peerId ? { ...p, signerInfo: { ...p.signerInfo!, username: data.username, account: data.account, providerPrefix: data.providerPrefix, subscription: data.subscription } } : p)
+            current.map(p => p.id === context.peerId ? { ...p, signerInfo: { ...p.signerInfo!, username: data.username, account: data.account, providerSuffix: data.providerSuffix, subscription: data.subscription } } : p)
           );
         } else {
           const newPeer: Peer = {
@@ -179,7 +179,7 @@ export class RoomService {
             signerInfo: {
               username: data.username,
               account: data.account,
-              providerPrefix: data.providerPrefix,
+              providerSuffix: data.providerSuffix,
               subscription: data.subscription,
             } as any,
           };
@@ -419,15 +419,15 @@ private stopPolling(): void {
         }
       }
       
-      // Get provider prefix from profile
+      // Get provider suffix from profile
       const profile = this.profileService.getProfileData();
       const providerUrl = profile?.provider ?? '';
-      const providerPrefix = getProviderByUrl(providerUrl)?.prefix ?? '';
+      const providerSuffix = getProviderByUrl(providerUrl)?.prefix ?? '';
 
       const payload: WhoamiPayload = {
         username: signer.username,
         account: signer.account,
-        providerPrefix,
+        providerSuffix,
         subscription,
       };
       this.globalWhoamiAction.send(payload, peerId ? { target: peerId } : undefined);
@@ -444,12 +444,12 @@ private stopPolling(): void {
       const signer = JSON.parse(stored) as SignerInfo;
       const profile = this.profileService.getProfileData();
       const providerUrl = profile?.provider ?? '';
-      const providerPrefix = getProviderByUrl(providerUrl)?.prefix ?? '';
+      const providerSuffix = getProviderByUrl(providerUrl)?.prefix ?? '';
       
       const payload: WhoamiPayload = {
         username: signer.username,
         account: signer.account,
-        providerPrefix,
+        providerSuffix,
         subscription: subscription || undefined,
       };
       // Update sessionStorage only if setting a subscription (not clearing)

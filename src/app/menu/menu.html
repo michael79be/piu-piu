@@ -33,13 +33,13 @@
   <div tuiDropdown #dropdown="tuiDropdown" [tuiDropdownOpen]="showAccountMenu()">
   <div [tuiDropdown]="content">
     <button tuiButton appearance="flat" tuiDropdownAuto tuiDropdownRole="menu" type="button" [tuiDropdown]="content" class="w-full justify-start"
-    tuiHintDirection="end" tuiHint="@{{ displayName() }}">
+    tuiHintDirection="end" tuiHint="@{{ accountDisplay() }}">
       @if (avatarUrl()) {
         <img [src]="avatarUrl()" alt="@{{ displayName() }}" onerror="this.style.display='none'" class="w-8 h-8 rounded-full bg-gray-100 p-1" />
       } @else {
         <la-icon [icon]="['lar', 'user']" size="2x" class="max-sm:ms-[-0.25em]"></la-icon>
       }
-      <span class="max-sm:hidden">@{{ displayName() }}</span>
+      <span class="max-sm:hidden">{{ accountDisplay() }}</span>
     </button>
   </div>
 

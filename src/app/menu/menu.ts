@@ -14,9 +14,9 @@ import { ErrorService } from '../error/error.service';
 import { CryptoService } from '../crypto/crypto.service';
 import { RsaPublicKeyService } from '../crypto/rsa-public-key.service';
 import { VapidPublicKeyService } from '../crypto/vapid-public-key.service';
-import { PostDialogComponent } from '../post/post-dialog/post-dialog.component';
 import { SettingsDialogComponent } from '../settings/settings-dialog';
 import { SignerInfo } from '../models/signer-info';
+import { PostDialogService } from '../post/post-dialog/post-dialog.service';
 
 type MenuItem = {
   label: string;
@@ -33,6 +33,7 @@ type MenuItem = {
 export class Menu implements OnInit, OnDestroy {
   private router = inject(Router);
   private dialogService = inject(TuiDialogService);
+  private postDialogService = inject(PostDialogService);
   private authService = inject(AuthService);
   private postService = inject(PostService);
   private roomService = inject(RoomService);
@@ -50,6 +51,8 @@ export class Menu implements OnInit, OnDestroy {
 isSignedIn = this.authService.isSignedIn;
   storedSigner = this.authService.storedSigner;
   displayName = this.authService.displayName;
+  accountName = computed(() => this.storedSigner()?.account ?? '');
+  accountDisplay = computed(() => this.isSignedIn() ? `@${this.accountName()}` : 'guest');
 
   currentRoute = signal<string>('/');
   private route = inject(ActivatedRoute);
@@ -143,32 +146,7 @@ isSignedIn = this.authService.isSignedIn;
   }
 
   async openPostDialog(): Promise<void> {
-    const accountName = this.storedSigner()?.account;
-    if (!accountName) return;
-
-    // If on another user's account page, redirect to own account first
-    if (!this.signerMatchesAccount()) {
-      this.router.navigateByUrl(`/@${accountName}`);
-      // Wait for navigation then open dialog
-      setTimeout(() => this.openPostDialogInternal(accountName), 0);
-      return;
-    }
-
-    this.openPostDialogInternal(accountName);
-  }
-
-  private openPostDialogInternal(accountName: string): void {
-    this.dialogService.open<MessageData>(new PolymorpheusComponent(PostDialogComponent), {
-      size: 'm',
-      closable: true,
-      dismissible: true,
-      data: { accountName },
-    }).subscribe(async (post) => {
-      if (post) {
-        await this.roomService.broadcastPost(post);
-        window.dispatchEvent(new CustomEvent('piu-piu:load-posts', { detail: { accountName } }));
-      }
-    });
+    await this.postDialogService.open(this.signerMatchesAccount());
   }
 
   openSettingsDialog(): void {
@@ -176,6 +154,7 @@ isSignedIn = this.authService.isSignedIn;
       size: 'm',
       closable: true,
       dismissible: true,
+      label: 'Settings',
     }).subscribe(async () => {
       // Reload avatar and push status after dialog closes
       this.loadAvatar();

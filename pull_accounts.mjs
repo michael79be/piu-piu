@@ -16,6 +16,12 @@ const TURN_CONFIG = {
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun1.l.google.com:19302' },
     { urls: 'stun:stun2.l.google.com:19302' },
+    { urls: 'stun:stun3.l.google.com:19302' },
+    { urls: 'stun:stun4.l.google.com:19302' },
+    // Public TURN servers
+    { urls: 'turn:openrelay.metered.ca:80', username: 'openrelayproject', credential: 'openrelayproject' },
+    { urls: 'turn:openrelay.metered.ca:443', username: 'openrelayproject', credential: 'openrelayproject' },
+    { urls: 'turn:openrelay.metered.ca:443?transport=tcp', username: 'openrelayproject', credential: 'openrelayproject' },
   ],
 };
 
@@ -43,7 +49,7 @@ async function loadExistingAccounts() {
 }
 
 function getAccountKey(entry) {
-  return `${entry.username}|${entry.account}|${entry.profileUrl}`;
+  return `${entry.username}|${entry.account}|${entry.providerSuffix}`;
 }
 
 function getAccountKeyByAccount(entry) {
@@ -110,9 +116,16 @@ function saveAccounts(accounts) {
 async function joinRoomWithRetry() {
   let lastError;
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-    console.log(`Connecting to ${APP_ID}/${ROOM_NAME} (attempt ${attempt}/${MAX_RETRIES})...`);
-const room = joinRoom(
-      { appId: APP_ID, rtcPolyfill: RTCPeerConnection, rtcConfig: TURN_CONFIG },
+    // Try different relay servers on each attempt
+    const relays = [
+      'wss://yabu.me/',  // Default relay
+      'wss://relay.trystero.dev/',  // Alternative relay
+    ];
+    const relayUrl = relays[(attempt - 1) % relays.length];
+    
+    console.log(`Connecting to ${APP_ID}/${ROOM_NAME} via ${relayUrl} (attempt ${attempt}/${MAX_RETRIES})...`);
+    const room = joinRoom(
+      { appId: APP_ID, rtcPolyfill: RTCPeerConnection, rtcConfig: TURN_CONFIG, relay: relayUrl },
       ROOM_NAME
     );
 
@@ -163,7 +176,7 @@ async function main() {
     const entry = {
       username: data.username,
       account: data.account,
-      providerPrefix: data.providerPrefix,
+      providerSuffix: data.providerSuffix,
       subscription: data.subscription,
       lastSeen: Date.now(),
     };
@@ -172,7 +185,7 @@ async function main() {
     if (!existing || entry.lastSeen > existing.lastSeen) {
       accounts.set(key, entry);
     }
-    console.log(`[whoami] @${data.account} (${data.username}) providerPrefix: ${data.providerPrefix}${data.subscription ? ' [subscription]' : ''} from peer ${context.peerId}`);
+    console.log(`[whoami] @${data.account} (${data.username}) providerSuffix: ${data.providerSuffix}${data.subscription ? ' [subscription]' : ''} from peer ${context.peerId}`);
   });
 
   room.onPeerJoin((context) => {

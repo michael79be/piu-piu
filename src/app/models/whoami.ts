@@ -1,6 +1,6 @@
 export interface WhoamiPayload {
   username: string;
   account: string;
-  providerPrefix: string;
+  providerSuffix: string;
   subscription?: string;
 }

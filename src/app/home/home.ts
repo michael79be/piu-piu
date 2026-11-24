@@ -31,6 +31,7 @@ export class Home {
         this.showSignInInput.set(true);
       }
     });
+    document.title = 'Piu-Piu';
   }
 
   onSignIn(): void {

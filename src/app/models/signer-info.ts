@@ -3,6 +3,6 @@ import { Signed } from './post-data';
 
 export interface SignerInfo extends ProfileData {
   account: string;
-  providerPrefix?: string;
+  providerSuffix?: string;
   subscription?: string;
 }

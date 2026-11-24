@@ -1,15 +1,14 @@
 import { Component, computed, inject, OnInit, signal, OnDestroy } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { TuiDialogService } from '@taiga-ui/core';
-import { PolymorpheusComponent } from '@taiga-ui/polymorpheus';
+import { Router } from '@angular/router';
 import { LaIconComponent, LaIconLibrary } from 'angular-line-awesome';
 import { lasClock, lasShieldAlt, lasList, lasSpinner, lasRss, lasUser } from 'angular-line-awesome/icons';
 import { RoomService } from '../room/room.service';
 import { AuthService } from '../auth/auth.service';
 import { PostService } from '../post/post.service';
 import { MessageData } from '../models/post-data';
-import { PostDialogComponent } from '../post/post-dialog/post-dialog.component';
 import { CryptoService } from '../crypto/crypto.service';
+import { PostDialogService } from '../post/post-dialog/post-dialog.service';
 
 @Component({
   selector: 'app-feed',
@@ -23,7 +22,7 @@ export class Feed implements OnInit, OnDestroy {
   private roomService = inject(RoomService);
   private authService = inject(AuthService);
   private postService = inject(PostService);
-  private dialogService = inject(TuiDialogService);
+  private postDialogService = inject(PostDialogService);
   private cryptoService = inject(CryptoService);
   private library = inject(LaIconLibrary);
 
@@ -45,7 +44,17 @@ export class Feed implements OnInit, OnDestroy {
     this.library.addIcons([lasClock, lasShieldAlt, lasList, lasSpinner, lasRss]);
   }
 
+  private updateTitle(): void {
+    const accountName = this.authService.storedSigner()?.account;
+    if (accountName) {
+      document.title = `Piu-Piu :: @${accountName}`;
+    } else {
+      document.title = 'Piu-Piu';
+    }
+  }
+
   ngOnInit(): void {
+    this.updateTitle();
     this.loadFeed();
 
     // Listen for P2P post events
@@ -54,6 +63,7 @@ export class Feed implements OnInit, OnDestroy {
 
   ngOnDestroy(): void {
     window.removeEventListener('piu-piu:load-posts', this.handlePostsUpdated as EventListener);
+    document.title = 'Piu-Piu';
   }
 
   canPost = computed(() => this.authService.isSignedIn() && this.authService.storedSigner()?.account);
@@ -120,20 +130,7 @@ export class Feed implements OnInit, OnDestroy {
   }
 
   openPostDialog(): void {
-    const accountName = this.authService.storedSigner()?.account;
-    if (!accountName) return;
-
-    this.dialogService.open<MessageData>(new PolymorpheusComponent(PostDialogComponent), {
-      size: 'm',
-      closable: true,
-      dismissible: true,
-      data: { accountName },
-    }).subscribe(async (post) => {
-      if (post) {
-        await this.roomService.broadcastPost(post);
-        this.loadFeed();
-      }
-    });
+    this.postDialogService.open(false);
   }
 
   formatTime(timestamp: number): string {
@@ -176,7 +173,7 @@ export class Feed implements OnInit, OnDestroy {
   }
 
   navigateToPost(post: MessageData): void {
-    this.router.navigateByUrl(`/@${post.senderAccount}`).then(() => {
+    this.router.navigateByUrl(`/@${post.senderAccount}#${post.uuid}`).then(() => {
       setTimeout(() => {
         const element = document.getElementById(`post-${post.uuid}`);
         if (element) {
@@ -186,5 +183,3 @@ export class Feed implements OnInit, OnDestroy {
     });
   }
 }
-
-import { Router } from '@angular/router';

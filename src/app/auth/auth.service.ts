@@ -59,16 +59,18 @@ export class AuthService {
 
     const profile = this.profileService.getProfileData();
     const providerUrl = profile?.provider ?? '';
-    const providerPrefix = getProviderByUrl(providerUrl)?.prefix ?? '';
+    const providerSuffix = getProviderByUrl(providerUrl)?.prefix ?? '';
+
+    const accountWithSuffix = providerSuffix ? `${accountName}/${providerSuffix}` : accountName;
 
     const signerInfo: SignerInfo = {
       username,
-      account: accountName,
+      account: accountWithSuffix,
       publicKey: '',
       authenticatorData: result.authenticatorData,
       clientData: result.clientData,
       signature: result.signature,
-      providerPrefix,
+      providerSuffix,
     };
 
     if (await this.checkSigner(signerInfo)) {

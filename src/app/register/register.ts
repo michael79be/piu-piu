@@ -54,12 +54,12 @@ export class Register {
       const pubKey = (cred.response as AuthenticatorAttestationResponse).getPublicKey();
       const providerUrl = this.selectedProviderUrl();
       const provider = getProviderByUrl(providerUrl);
-      const providerPrefix = provider?.prefix || '';
+      const providerSuffix = provider?.prefix || '';
       const publicKeyBase64 = pubKey ? btoa(String.fromCharCode(...new Uint8Array(pubKey))) : '';
       const profile = {
         username: this.username(),
         publicKey: publicKeyBase64,
-        provider: providerPrefix,
+        provider: providerSuffix,
       };
       const encoded = btoa(JSON.stringify(profile));
       const base = `${rootUrl()}profile/${encoded}`;
@@ -99,7 +99,7 @@ export class Register {
             accountName = shortUrl.split('/').pop() || null;
           }
           if (accountName) {
-            const url = providerPrefix ? `/@${accountName}/${providerPrefix}` : `/@${accountName}`;
+            const url = providerSuffix ? `/@${accountName}/${providerSuffix}` : `/@${accountName}`;
             this.router.navigateByUrl(`${url}?signIn=true`);
           }
         }, 2000);

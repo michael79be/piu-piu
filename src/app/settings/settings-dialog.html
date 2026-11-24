@@ -1,11 +1,4 @@
-<div class="p-4 space-y-4">
-  <div class="flex items-center justify-between">
-    <h2 class="text-lg font-semibold">Settings</h2>
-    <button tuiButton appearance="flat" size="s" (click)="onCancel()" tuiHint="Close">
-      <la-icon [icon]="['las', 'times']" size="2x"></la-icon>
-    </button>
-  </div>
-
+<div class="space-y-4">
   <div class="space-y-3">
       <div class="flex-1">
         <label class="block text-sm font-medium text-gray-700">Avatar Service</label>
@@ -22,8 +15,6 @@
       </div>
 
       @if (avatarService() !== 'none') {
-      <div class="flex items-center gap-3">
-        <la-icon [icon]="inputIcon()" class="text-gray-400 text-xl"></la-icon>
         <div class="flex-1">
           <label class="block text-sm font-medium text-gray-700">{{ inputLabel() }}</label>
           <tui-textfield>
@@ -43,7 +34,6 @@
             <p class="text-xs text-gray-500 mt-1">Enter a direct image URL for your avatar.</p>
           }
         </div>
-      </div>
     }
 
     @if (previewUrl() || currentAvatarUrl()) {
@@ -72,7 +62,6 @@
   </div>
 
   <div class="flex justify-end gap-2 pt-2 border-t border-gray-100">
-    <button tuiButton appearance="flat" size="m" (click)="onCancel()" [disabled]="loading()">Cancel</button>
     <button tuiButton appearance="primary" size="m" *ngIf="loading()" disabled>
       <la-icon [icon]="['las', 'spinner']" size="1x" class="animate-spin mr-1"></la-icon>
       Saving...

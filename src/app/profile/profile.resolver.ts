@@ -1,7 +1,7 @@
 import { Injectable } from '@angular/core';
 import { Resolve, ActivatedRouteSnapshot } from '@angular/router';
 import { ProviderService } from '../provider/provider.service';
-import { getProviderByPrefix, getDefaultProvider, LocalhostProviderUrl, type Provider } from '../provider/provider.enum';
+import { getProviderByPrefix, getDefaultProvider, type Provider } from '../provider/provider.enum';
 import { ProfileService } from './profile.service';
 import { ErrorService } from '../error/error.service';
 import { lastValueFrom } from 'rxjs';
@@ -40,10 +40,7 @@ export class ProfileResolver implements Resolve<ProfileData | null> {
   }
 
   private async loadFromAccountName(accountName: string, providerParam: string | null): Promise<ProfileData | null> {
-    // Use localhost provider when on localhost to avoid CORS issues
-    const isLocalhost = location.hostname === 'localhost';
-    const defaultProvider = isLocalhost ? { url: LocalhostProviderUrl, prefix: 'l', label: 'localhost' } : getDefaultProvider();
-    const provider: Provider = providerParam ? getProviderByPrefix(providerParam)! : defaultProvider;
+    const provider: Provider = providerParam ? getProviderByPrefix(providerParam)! : getDefaultProvider();
 
     try {
       const res: any = await lastValueFrom(this.providerService.lookupShortUrl(provider.url, accountName));

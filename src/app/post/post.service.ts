@@ -65,9 +65,6 @@ export class PostService {
     const signingString = this.createSigningString(messageData);
     const challenge = await this.hashChallenge(signingString);
 
-    console.log('[createPost] signingString:', signingString);
-    console.log('[createPost] challenge length:', challenge.length);
-
     try {
       const cred = await navigator.credentials.get({
         publicKey: {
@@ -81,10 +78,6 @@ export class PostService {
       const authData = response.authenticatorData ? new Uint8Array(response.authenticatorData) : new Uint8Array(0);
       const clientData = response.clientDataJSON ? new Uint8Array(response.clientDataJSON) : new Uint8Array(0);
       const signature = response.signature ? new Uint8Array(response.signature) : new Uint8Array(0);
-
-      console.log('[createPost] authData length:', authData.length);
-      console.log('[createPost] clientData length:', clientData.length);
-      console.log('[createPost] signature length:', signature.length);
 
       let username = signer.username;
       if (response.userHandle) {
@@ -105,7 +98,7 @@ export class PostService {
 
       return post;
     } catch (e) {
-      console.error('WebAuthn sign failed:', e);
+      console.error('🔴 [Post] WebAuthn sign failed:', e);
       return null;
     }
   }
@@ -148,19 +141,12 @@ export class PostService {
   }
 
   async getMeta(accountName: string): Promise<(SettingsData | FollowData)[]> {
-    console.log('[getMeta] START account:', accountName);
     const db = await this.getDB(accountName);
-    console.log('[getMeta] got db');
     const tx = db.transaction('posts', 'readonly');
     const store = tx.objectStore('posts');
     const allKeys = await store.getAllKeys();
     const allValues = await store.getAll();
-    console.log('[getMeta] waiting for tx.done');
     await tx.done;
-    console.log('[getMeta] tx.done resolved');
-    
-    console.log('[getMeta] account:', accountName, 'allKeys:', allKeys);
-    console.log('[getMeta] @ keys:', allKeys.filter(k => typeof k === 'string' && k.startsWith('@')));
     
     const results: (SettingsData | FollowData)[] = [];
     for (let i = 0; i < allKeys.length; i++) {
@@ -169,14 +155,12 @@ export class PostService {
       if (typeof key === 'string' && key.startsWith('@')) {
         try {
           const parsed = JSON.parse(value);
-          console.log('[getMeta] found @ key:', key, 'data:', parsed);
           results.push(parsed);
         } catch {
           // Ignore parse errors
         }
       }
     }
-    console.log('[getMeta] results:', results);
     return results.sort((a, b) => {
       const ta = 'timestamp' in a && typeof a.timestamp === 'number' ? a.timestamp : 0;
       const tb = 'timestamp' in b && typeof b.timestamp === 'number' ? b.timestamp : 0;
@@ -185,14 +169,6 @@ export class PostService {
   }
 
   private deserializePost(post: Record<string, unknown>): MessageData | SettingsData | FollowData | Signed {
-    console.log('[deserializePost]', {
-      keys: Object.keys(post),
-      hasSignature: !!post['signature'],
-      hasAuthenticatorData: !!post['authenticatorData'],
-      hasClientData: !!post['clientData'],
-      hasPublicKey: !!post['publicKey'],
-    });
-    
     const result = {
       ...post,
       signature: post['signature'] as string,
@@ -200,13 +176,6 @@ export class PostService {
       clientData: post['clientData'] as string,
       publicKey: post['publicKey'] as string,
     };
-    
-    console.log('[deserializePost] result', {
-      signatureLength: result.signature?.length,
-      authenticatorDataLength: result.authenticatorData?.length,
-      clientDataLength: result.clientData?.length,
-      publicKeyLength: result.publicKey?.length,
-    });
     return result;
   }
 
@@ -354,9 +323,6 @@ export class PostService {
 
     const challenge = await this.hashFollowChallenge(follows);
 
-    console.log('[saveFollow] signingString:', this.createFollowSigningString(follows));
-    console.log('[saveFollow] challenge length:', challenge.length);
-
     try {
       const cred = await navigator.credentials.get({
         publicKey: {
@@ -370,10 +336,6 @@ export class PostService {
       const authData = response.authenticatorData ? new Uint8Array(response.authenticatorData) : new Uint8Array(0);
       const clientData = response.clientDataJSON ? new Uint8Array(response.clientDataJSON) : new Uint8Array(0);
       const signature = response.signature ? new Uint8Array(response.signature) : new Uint8Array(0);
-
-      console.log('[saveFollow] authData length:', authData.length);
-      console.log('[saveFollow] clientData length:', clientData.length);
-      console.log('[saveFollow] signature length:', signature.length);
 
       let username = signer.username;
       if (response.userHandle) {
@@ -395,7 +357,7 @@ export class PostService {
 
       return followData;
     } catch (e) {
-      console.error('WebAuthn sign failed for follow:', e);
+      console.error('🔴 [Post] WebAuthn sign failed for follow:', e);
       return null;
     }
   }
@@ -443,7 +405,7 @@ export class PostService {
 
       return followData;
     } catch (e) {
-      console.error('WebAuthn sign failed for unfollow:', e);
+      console.error('🔴 [Post] WebAuthn sign failed for unfollow:', e);
       return null;
     }
   }
@@ -489,17 +451,11 @@ export class PostService {
         if (parsed.challenge) {
           actualChallenge = this.base64UrlToBytes(parsed.challenge);
         }
-      } catch (e) {
-        console.error('[verifyFollow] Failed to parse clientDataJSON:', e);
+      } catch {
+        // Ignore parse errors
       }
 
-      console.log('[verifyFollow] follows:', JSON.stringify(follows));
-      console.log('[verifyFollow] expectedChallenge length:', expectedChallenge.length);
-      console.log('[verifyFollow] actualChallenge length:', actualChallenge?.length);
-      console.log('[verifyFollow] challenge match:', actualChallenge ? this.bytesEqual(expectedChallenge, actualChallenge) : 'no challenge in clientData');
-
       if (!actualChallenge || !this.bytesEqual(expectedChallenge, actualChallenge)) {
-        console.error('[verifyFollow] Challenge mismatch!');
         return false;
       }
 
@@ -514,7 +470,7 @@ export class PostService {
         signedData as BufferSource
       );
     } catch (e) {
-      console.error('Follow verification failed:', e);
+      console.error('🔴 [Post] Follow verification failed:', e);
       return false;
     }
   }
@@ -567,34 +523,17 @@ export class PostService {
           // WebAuthn challenge is base64url encoded
           actualChallenge = this.base64UrlToBytes(parsed.challenge);
         }
-      } catch (e) {
-        console.error('[verifyPost] Failed to parse clientDataJSON:', e);
+      } catch {
+        // Ignore parse errors
       }
 
-      console.log('[verifyPost]', {
-        uuid: post.uuid,
-        signingString,
-        expectedChallengeLength: expectedChallenge.length,
-        actualChallengeLength: actualChallenge?.length,
-        challengeMatch: actualChallenge ? this.bytesEqual(expectedChallenge, actualChallenge) : 'no challenge in clientData',
-        authDataLength: authDataBytes.length,
-        clientDataLength: clientDataBytes.length,
-        clientDataHashLength: clientDataHash.length,
-        signedDataLength: signedData.length,
-        signatureLength: signatureBytes.length,
-        publicKeyLength: publicKeyBytes.length,
-      });
-
       if (!actualChallenge || !this.bytesEqual(expectedChallenge, actualChallenge)) {
-        console.error('[verifyPost] Challenge mismatch!');
         return false;
       }
 
       const publicKeyBase64 = this.bytesToBase64(publicKeyBytes);
       const cryptoKey = await this.cryptoService.importPublicKey(publicKeyBase64);
       const rawSignature = this.cryptoService.derToRawSignature(signatureBytes);
-
-      console.log('[verifyPost] rawSignature', { length: rawSignature.length });
 
       return await window.crypto.subtle.verify(
         { name: 'ECDSA', hash: { name: 'SHA-256' } },
@@ -603,7 +542,7 @@ export class PostService {
         signedData as BufferSource
       );
     } catch (e) {
-      console.error('Verification failed:', e);
+      console.error('🔴 [Post] Verification failed:', e);
       return false;
     }
   }
@@ -629,15 +568,10 @@ export class PostService {
 
   async getVerifiedPosts(accountName: string): Promise<MessageData[]> {
     const allPosts = await this.getAllPostsWithFullData(accountName);
-    console.log('[getVerifiedPosts] total posts:', allPosts.length);
     const verifiedPosts: MessageData[] = [];
     for (const post of allPosts) {
-      console.log('[getVerifiedPosts] checking post:', post.uuid);
       if (await this.verifyPost(post)) {
-        console.log('[getVerifiedPosts] post verified:', post.uuid);
         verifiedPosts.push(post);
-      } else {
-        console.log('[getVerifiedPosts] post FAILED verification:', post.uuid);
       }
     }
     return verifiedPosts;

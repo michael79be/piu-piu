@@ -2,8 +2,8 @@ import { Component, computed, inject, OnInit, signal, OnDestroy } from '@angular
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router } from '@angular/router';
-import { TuiButton, TuiDropdown, TuiDataList, TuiTextfield, TuiDialogService, TuiHint } from '@taiga-ui/core';
-import { PolymorpheusComponent } from '@taiga-ui/polymorpheus';
+import { filter } from 'rxjs/operators';
+import { TuiButton, TuiDropdown, TuiDataList, TuiTextfield, TuiHint } from '@taiga-ui/core';
 import { LaIconComponent, LaIconLibrary } from 'angular-line-awesome';
 import { lasArrowLeft, lasEllipsisH, lasHome, larEdit, larUser, lasUsers, lasComment, lasPaperPlane, lasShieldAlt, lasUserSecret, lasUser, lasClock, lasBell, lasBellSlash, lasSpinner, lasUserPlus, lasCheck } from 'angular-line-awesome/icons';
 import { ProfileData } from '../models/profile-data';
@@ -12,10 +12,10 @@ import { RoomService } from '../room/room.service';
 import { AuthService } from '../auth/auth.service';
 import { PostService } from '../post/post.service';
 import { MessageData } from '../models/post-data';
-import { PostDialogComponent } from '../post/post-dialog/post-dialog.component';
 import { CryptoService } from '../crypto/crypto.service';
 import { RsaPublicKeyService } from '../crypto/rsa-public-key.service';
 import { VapidPublicKeyService } from '../crypto/vapid-public-key.service';
+import { PostDialogService } from '../post/post-dialog/post-dialog.service';
 
 type MenuItem = {
   label: string;
@@ -36,7 +36,7 @@ export class Account implements OnInit, OnDestroy {
   private roomService = inject(RoomService);
   private authService = inject(AuthService);
   private postService = inject(PostService);
-  private dialogService = inject(TuiDialogService);
+  private postDialogService = inject(PostDialogService);
   private cryptoService = inject(CryptoService);
   private rsaPublicKeyService = inject(RsaPublicKeyService);
   private vapidPublicKeyService = inject(VapidPublicKeyService);
@@ -72,6 +72,14 @@ export class Account implements OnInit, OnDestroy {
     this.library.addIcons([lasArrowLeft, lasEllipsisH, lasHome, larEdit, larUser, lasUsers, lasComment, lasPaperPlane, lasShieldAlt, lasUserSecret, lasUser, lasClock, lasBell, lasBellSlash, lasSpinner, lasUserPlus, lasCheck]);
   }
 
+  private updateTitle(accountName: string | null): void {
+    if (accountName) {
+      document.title = `Piu-Piu :: @${accountName}`;
+    } else {
+      document.title = 'Piu-Piu';
+    }
+  }
+
   private async loadAvatar(): Promise<void> {
     const accountName = this.accountName();
     if (!accountName) return;
@@ -91,28 +99,16 @@ export class Account implements OnInit, OnDestroy {
   }
 
   ngOnInit(): void {
-    this.profileData.set(this.route.snapshot.data['profileData']);
-    const routeAccountName = this.route.snapshot.paramMap.get('accountName');
-    const profile = this.profileData();
-    this.accountName.set(routeAccountName ?? profile?.accountName ?? profile?.username ?? null);
+    this.loadAccountFromRoute();
 
-    if (this.accountName()) {
-      this.roomService.joinRoom(this.accountName()!);
-    }
-
-    this.loadPosts();
-    this.loadFollowStatus();
-    this.loadAvatar();
+    // Subscribe to route param changes for navigation between account pages
+    this.route.paramMap.pipe(filter(() => true)).subscribe(() => {
+      this.loadAccountFromRoute();
+    });
 
     // Join global room if already signed in (session restore)
     if (this.authService.isSignedIn()) {
       this.roomService.joinGlobalRoom().catch(err => console.error('Failed to join global room:', err));
-    }
-
-    const signInParam = this.route.snapshot.queryParamMap.get('signIn');
-    if (signInParam === 'true') {
-      this.showAccountMenu.set(true);
-      this.performSignIn();
     }
 
     // Listen for P2P post events
@@ -125,8 +121,37 @@ export class Account implements OnInit, OnDestroy {
     }
   }
 
+  private loadAccountFromRoute(): void {
+    const routeAccountName = this.route.snapshot.paramMap.get('accountName');
+    const providerParam = this.route.snapshot.paramMap.get('provider');
+    const profile = this.profileData();
+    
+    // Construct full account name with provider suffix
+    let accountName = routeAccountName ?? profile?.accountName ?? profile?.username ?? null;
+    if (accountName && providerParam) {
+      accountName = `${accountName}/${providerParam}`;
+    }
+    this.accountName.set(accountName);
+    this.updateTitle(accountName);
+
+    if (this.accountName()) {
+      this.roomService.joinRoom(this.accountName()!);
+    }
+
+    this.loadPosts();
+    this.loadFollowStatus();
+    this.loadAvatar();
+
+    const signInParam = this.route.snapshot.queryParamMap.get('signIn');
+    if (signInParam === 'true') {
+      this.showAccountMenu.set(true);
+      this.performSignIn();
+    }
+  }
+
   ngOnDestroy(): void {
     window.removeEventListener('piu-piu:load-posts', this.handlePostsUpdated as EventListener);
+    this.updateTitle(null);
   }
 
   posts = signal<MessageData[]>([]);
@@ -186,15 +211,11 @@ export class Account implements OnInit, OnDestroy {
   async loadPosts(): Promise<void> {
     const accountName = this.accountName();
     const profile = this.profileData();
-    console.log('[Account.loadPosts] accountName:', accountName);
-    console.log('[Account.loadPosts] profile:', profile);
     if (!accountName) {
-      console.log('[Account.loadPosts] missing accountName');
       this.posts.set([]);
       return;
     }
     const verifiedPosts = await this.postService.getVerifiedPosts(accountName);
-    console.log('[Account.loadPosts] verifiedPosts count:', verifiedPosts.length);
     this.posts.set(verifiedPosts);
 
     // Preload gravatar URLs for all unique sender accounts
@@ -271,17 +292,7 @@ export class Account implements OnInit, OnDestroy {
     const accountName = this.accountName();
     if (!accountName) return;
 
-    this.dialogService.open<MessageData>(new PolymorpheusComponent(PostDialogComponent), {
-      size: 'm',
-      closable: true,
-      dismissible: true,
-      data: { accountName },
-    }).subscribe(async (post) => {
-      if (post) {
-        await this.roomService.broadcastPost(post);
-        this.loadPosts();
-      }
-    });
+    this.postDialogService.open(this.signerMatchesAccount());
   }
 
   onAccount(): void {
