@@ -3,7 +3,7 @@ import { TuiToastService } from '@taiga-ui/kit';
 import type { Room, PeerJoinContext, PeerLeaveContext } from '@trystero-p2p/core';
 import { SESSION_KEY } from '../auth/auth.enum';
 import { PostService } from '../post/post.service';
-import { MessageData } from '../models/post-data';
+import { MessageData, FollowData } from '../models/post-data';
 import { CryptoService } from '../crypto/crypto.service';
 import { RsaPublicKeyService } from '../crypto/rsa-public-key.service';
 import { AuthService } from '../auth/auth.service';
@@ -54,6 +54,7 @@ export class RoomService {
   private postAction: PostAction = createPostAction();
   private requestAction: RequestAction = createRequestAction();
   private provideAction: ProvideAction = createProvideAction();
+  private joinRoomLock = Promise.resolve(); // Lock to prevent concurrent joins
 
   peers = signal<Peer[]>([]);
   globalPeers = signal<Peer[]>([]);
@@ -423,12 +424,20 @@ private stopPolling(): void {
       const profile = this.profileService.getProfileData();
       const providerUrl = profile?.provider ?? '';
       const providerSuffix = getProviderByUrl(providerUrl)?.prefix ?? '';
+      
+      // Get full follow data (signed)
+      let follow: FollowData | undefined;
+      if (signer.account) {
+        const followData = await this.postService.getFollow(signer.account);
+        if (followData) follow = followData;
+      }
 
       const payload: WhoamiPayload = {
         username: signer.username,
         account: signer.account,
         providerSuffix,
         subscription,
+        follow,
       };
       this.globalWhoamiAction.send(payload, peerId ? { target: peerId } : undefined);
     } catch {

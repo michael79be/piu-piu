@@ -5,7 +5,8 @@ import { RTCPeerConnection } from 'werift';
 
 const APP_ID = 'piu-piu';
 const ROOM_NAME = 'piu-piu';
-const CONNECT_TIMEOUT = 30000; // 30 seconds to connect
+const CONNECT_TIMEOUT = 60000; // 60 seconds to connect
+const PEER_DISCOVERY_WAIT = 15000; // 15 seconds for peer discovery
 const MAX_AGE = 24 * 60 * 60 * 1000; // 24 hours
 const MAX_RETRIES = 3;
 const RETRY_DELAY = 5000;
@@ -18,10 +19,16 @@ const TURN_CONFIG = {
     { urls: 'stun:stun2.l.google.com:19302' },
     { urls: 'stun:stun3.l.google.com:19302' },
     { urls: 'stun:stun4.l.google.com:19302' },
-    // Public TURN servers
+    // Public TURN servers - multiple providers for redundancy
     { urls: 'turn:openrelay.metered.ca:80', username: 'openrelayproject', credential: 'openrelayproject' },
     { urls: 'turn:openrelay.metered.ca:443', username: 'openrelayproject', credential: 'openrelayproject' },
     { urls: 'turn:openrelay.metered.ca:443?transport=tcp', username: 'openrelayproject', credential: 'openrelayproject' },
+    { urls: 'turn:relay.metered.ca:80', username: 'openrelayproject', credential: 'openrelayproject' },
+    { urls: 'turn:relay.metered.ca:443', username: 'openrelayproject', credential: 'openrelayproject' },
+    { urls: 'turn:relay.metered.ca:443?transport=tcp', username: 'openrelayproject', credential: 'openrelayproject' },
+    // Additional TURN servers
+    { urls: 'turn:turn.driftnet.io:3478', username: 'driftnet', credential: 'driftnet' },
+    { urls: 'turn:turn.driftnet.io:5349?transport=tcp', username: 'driftnet', credential: 'driftnet' },
   ],
 };
 
@@ -178,6 +185,7 @@ async function main() {
       account: data.account,
       providerSuffix: data.providerSuffix,
       subscription: data.subscription,
+      follow: data.follow,
       lastSeen: Date.now(),
     };
     const key = getAccountKey(entry);
@@ -185,7 +193,8 @@ async function main() {
     if (!existing || entry.lastSeen > existing.lastSeen) {
       accounts.set(key, entry);
     }
-    console.log(`[whoami] @${data.account} (${data.username}) providerSuffix: ${data.providerSuffix}${data.subscription ? ' [subscription]' : ''} from peer ${context.peerId}`);
+    const followCount = data.follow?.follows ? Object.keys(data.follow.follows).length : 0;
+    console.log(`[whoami] @${data.account} (${data.username}) providerSuffix: ${data.providerSuffix}${data.subscription ? ' [subscription]' : ''}${followCount ? ' [follows: ' + followCount + ']' : ''} from peer ${context.peerId}`);
   });
 
   room.onPeerJoin((context) => {
@@ -203,8 +212,8 @@ async function main() {
   });
 
   // Wait a bit more for peer discovery
-  console.log('Waiting 10s for peer discovery...');
-  await new Promise(resolve => setTimeout(resolve, 10000));
+  console.log(`Waiting ${PEER_DISCOVERY_WAIT}ms for peer discovery...`);
+  await new Promise(resolve => setTimeout(resolve, PEER_DISCOVERY_WAIT));
 
   console.log(`Collecting whoami for ${COLLECTION_TIME}ms...`);
 
@@ -214,14 +223,13 @@ async function main() {
   room.leave();
   console.log(`Collection complete. Total unique accounts: ${accounts.size} (${collected} whoami, ${peerJoins} peer joins, ${errorCount} errors)`);
 
-  if (errorCount > 0) {
-    console.error(`Collection had ${errorCount} peer connection errors`);
-    process.exit(1);
-  }
-
   if (accounts.size === 0) {
     console.error('No accounts collected - peer connection failures');
     process.exit(1);
+  }
+
+  if (errorCount > 0) {
+    console.warn(`Collection had ${errorCount} peer connection errors (continuing with collected accounts)`);
   }
 
   saveAccounts(accounts);
