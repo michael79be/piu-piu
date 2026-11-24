@@ -11,27 +11,6 @@ const MAX_AGE = 24 * 60 * 60 * 1000; // 24 hours
 const MAX_RETRIES = 3;
 const RETRY_DELAY = 5000;
 
-// TURN/STUN servers for better WebRTC connectivity
-const TURN_CONFIG = {
-  iceServers: [
-    { urls: 'stun:stun.l.google.com:19302' },
-    { urls: 'stun:stun1.l.google.com:19302' },
-    { urls: 'stun:stun2.l.google.com:19302' },
-    { urls: 'stun:stun3.l.google.com:19302' },
-    { urls: 'stun:stun4.l.google.com:19302' },
-    // Public TURN servers - multiple providers for redundancy
-    { urls: 'turn:openrelay.metered.ca:80', username: 'openrelayproject', credential: 'openrelayproject' },
-    { urls: 'turn:openrelay.metered.ca:443', username: 'openrelayproject', credential: 'openrelayproject' },
-    { urls: 'turn:openrelay.metered.ca:443?transport=tcp', username: 'openrelayproject', credential: 'openrelayproject' },
-    { urls: 'turn:relay.metered.ca:80', username: 'openrelayproject', credential: 'openrelayproject' },
-    { urls: 'turn:relay.metered.ca:443', username: 'openrelayproject', credential: 'openrelayproject' },
-    { urls: 'turn:relay.metered.ca:443?transport=tcp', username: 'openrelayproject', credential: 'openrelayproject' },
-    // Additional TURN servers
-    { urls: 'turn:turn.driftnet.io:3478', username: 'driftnet', credential: 'driftnet' },
-    { urls: 'turn:turn.driftnet.io:5349?transport=tcp', username: 'driftnet', credential: 'driftnet' },
-  ],
-};
-
 const args = process.argv.slice(2);
 const OUTPUT_PATH = resolve(args[0] || 'accounts/test.json');
 const COLLECTION_TIME = parseInt(args[1] || '10000', 10);
@@ -132,7 +111,7 @@ async function joinRoomWithRetry() {
     
     console.log(`Connecting to ${APP_ID}/${ROOM_NAME} via ${relayUrl} (attempt ${attempt}/${MAX_RETRIES})...`);
     const room = joinRoom(
-      { appId: APP_ID, rtcPolyfill: RTCPeerConnection, rtcConfig: TURN_CONFIG, relay: relayUrl },
+      { appId: APP_ID, rtcPolyfill: RTCPeerConnection, relay: relayUrl },
       ROOM_NAME
     );
 
