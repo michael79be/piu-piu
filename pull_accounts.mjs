@@ -11,8 +11,8 @@ const ROOM_NAME = 'piu-piu';
 const CONNECT_TIMEOUT = 60000; // 60 seconds to connect
 const PEER_DISCOVERY_WAIT = 15000; // 15 seconds for peer discovery
 const MAX_AGE = 24 * 60 * 60 * 1000; // 24 hours
-const MAX_RETRIES = 3;
-const RETRY_DELAY = 5000;
+const MAX_RETRIES = 5;
+const RETRY_DELAY = 10000;
 
 const args = process.argv.slice(2);
 const OUTPUT_PATH = resolve(args[0] || 'accounts/test.json');
@@ -49,8 +49,21 @@ console.log = function(message) {
 const followedAccounts = new Set();
 
 // VAPID and crypto functions for push notifications
-const VAPID_PRIVATE_KEY = process.env.VAPID_PRIVATE_KEY;
-const PRIVATE_KEY_PEM = process.env.PRIVATE_KEY;
+const VAPID_PRIVATE_KEY = process.env.VAPID_PRIVATE_KEY || (() => {
+  try {
+    return readFileSync(resolve('vapid-private.key'), 'utf-8').trim();
+  } catch {
+    return null;
+  }
+})();
+
+const PRIVATE_KEY_PEM = process.env.PRIVATE_KEY || (() => {
+  try {
+    return readFileSync(resolve('private.pem'), 'utf-8').trim();
+  } catch {
+    return null;
+  }
+})();
 
 function deriveVapidPublicKey(privateKeyBase64Url) {
   const base64 = privateKeyBase64Url.replace(/-/g, '+').replace(/_/g, '/');
@@ -348,6 +361,8 @@ async function fetchFollowedPosts(followedAccountsSet, followDataMap, accountsMa
       if (lastId) {
         requestPayload.after = lastId;
         console.log(`[fetch] Incremental sync from @${account} after ${lastId}`);
+      } else {
+        console.log(`[fetch] Full sync from @${account} (fetching all posts)`);
       }
       requestAction.send(requestPayload);
       
@@ -471,7 +486,7 @@ async function joinRoomWithRetry() {
     // Try different relay servers on each attempt
     const relays = [
       'wss://yabu.me/',  // Default relay
-      'wss://relay.trystero.dev/',  // Alternative relay
+      'wss://trystero-sepolia.vercel.app/',  // Alternative public relay
     ];
     const relayUrl = relays[(attempt - 1) % relays.length];
     

@@ -2,7 +2,7 @@ import { Component, computed, inject, OnInit, signal, OnDestroy } from '@angular
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router } from '@angular/router';
-import { filter } from 'rxjs/operators';
+import { filter, distinctUntilChanged } from 'rxjs/operators';
 import { TuiButton, TuiDropdown, TuiDataList, TuiTextfield, TuiHint } from '@taiga-ui/core';
 import { LaIconComponent, LaIconLibrary } from 'angular-line-awesome';
 import { lasArrowLeft, lasEllipsisH, lasHome, larEdit, larUser, lasUsers, lasComment, lasPaperPlane, lasShieldAlt, lasUserSecret, lasUser, lasClock, lasBell, lasBellSlash, lasSpinner, lasUserPlus, lasCheck } from 'angular-line-awesome/icons';
@@ -104,7 +104,9 @@ export class Account implements OnInit, OnDestroy {
     this.loadAccountFromRoute();
 
     // Subscribe to route param changes for navigation between account pages
-    this.route.paramMap.pipe(filter(() => true)).subscribe(() => {
+    this.route.paramMap.pipe(
+      distinctUntilChanged((prev, curr) => prev.get('accountName') === curr.get('accountName') && prev.get('provider') === curr.get('provider'))
+    ).subscribe(() => {
       this.loadAccountFromRoute();
     });
 
@@ -161,6 +163,7 @@ export class Account implements OnInit, OnDestroy {
   ngOnDestroy(): void {
     window.removeEventListener('piu-piu:load-posts', this.handlePostsUpdated as EventListener);
     this.updateTitle(null);
+    this.roomService.leaveRoom();
   }
 
   posts = signal<MessageData[]>([]);
@@ -332,15 +335,15 @@ export class Account implements OnInit, OnDestroy {
       if (subscription) {
         // Active subscription exists in browser
         this.pushSubscription.set(subscription);
-        // Also load encrypted version for whoami updates from IndexedDB
-        const storedSub = await this.postService.getSubscription(accountName);
-        if (storedSub) {
-          this.pushSubscription.set(storedSub);
+        // Also load encrypted version for whoami updates from localStorage
+        const encryptedSub = await this.loadEncryptedSubscription(accountName);
+        if (encryptedSub) {
+          this.roomService.updateWhoamiSubscription(encryptedSub);
         }
       } else {
-        // No active subscription - check if we have encrypted data in IndexedDB
-        const storedSub = await this.postService.getSubscription(accountName);
-        if (storedSub) {
+        // No active subscription - check if we have encrypted data in localStorage
+        const encryptedSub = await this.loadEncryptedSubscription(accountName);
+        if (encryptedSub) {
           // Re-subscribe to restore the subscription (browser returns existing if valid)
           await this.resubscribe(accountName);
         }
@@ -363,20 +366,56 @@ export class Account implements OnInit, OnDestroy {
       });
       
       this.pushSubscription.set(subscription);
-      // Re-encrypt and save new subscription to IndexedDB
+      // Re-encrypt and save new subscription to localStorage
       const rsaPublicKey = await this.rsaPublicKeyService.getPublicKey();
       const newEncrypted = await this.cryptoService.rsaEncrypt(JSON.stringify(subscription), rsaPublicKey);
       if (newEncrypted) {
-        await this.postService.saveSubscription(accountName, subscription);
+        await this.saveEncryptedSubscription(accountName, subscription);
         this.roomService.updateWhoamiSubscription(newEncrypted);
       }
     } catch {
       // Failed to restore, clear invalid data
-      await this.postService.saveSubscription(accountName, null);
+      await this.clearSubscription(accountName);
     }
   }
 
-  // private encryptedSubscription: string | null = null;
+  // Helper methods for encrypted subscription storage in IndexedDB
+  private getSubscriptionStorageKey(): string {
+    return '@subscription';
+  }
+
+  private async saveEncryptedSubscription(accountName: string, subscription: PushSubscription | null): Promise<string | null> {
+    const key = this.getSubscriptionStorageKey();
+    const db = await this.postService.getDB(accountName);
+    if (subscription) {
+      const rsaPublicKey = await this.rsaPublicKeyService.getPublicKey();
+      const encrypted = await this.cryptoService.rsaEncrypt(JSON.stringify(subscription), rsaPublicKey);
+      if (encrypted) {
+        await db.put('posts', encrypted, key);
+        // Also save unencrypted PushSubscription for Service Worker to check
+        await this.postService.saveSubscription(accountName, subscription);
+        return encrypted;
+      }
+    } else {
+      await db.delete('posts', key);
+      await this.postService.saveSubscription(accountName, null);
+    }
+    return null;
+  }
+
+  private async loadEncryptedSubscription(accountName: string): Promise<string | null> {
+    const key = this.getSubscriptionStorageKey();
+    const db = await this.postService.getDB(accountName);
+    const result = await db.get('posts', key);
+    return result ?? null;
+  }
+
+  private async clearSubscription(accountName: string): Promise<void> {
+    const key = this.getSubscriptionStorageKey();
+    const db = await this.postService.getDB(accountName);
+    await db.delete('posts', key);
+    await this.postService.saveSubscription(accountName, null);
+  }
 
   async togglePushNotifications(): Promise<void> {
     if (!this.pushSupported()) {
@@ -403,7 +442,7 @@ export class Account implements OnInit, OnDestroy {
         if (subscription) {
           await subscription.unsubscribe();
         }
-        await this.postService.saveSubscription(accountName, null);
+        await this.clearSubscription(accountName);
         this.pushSubscription.set(null);
         // Update whoami to remove subscription
         this.roomService.updateWhoamiSubscription('');
@@ -429,8 +468,8 @@ export class Account implements OnInit, OnDestroy {
           throw new Error('Failed to encrypt subscription');
         }
 
-        // Save subscription to IndexedDB
-        await this.postService.saveSubscription(accountName, subscription);
+        // Save encrypted subscription to localStorage
+        await this.saveEncryptedSubscription(accountName, subscription);
         this.pushSubscription.set(subscription);
 
         // Update whoami in global room

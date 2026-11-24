@@ -17,6 +17,37 @@ import { SignerInfo } from '../models/signer-info';
 import { PostDialogService } from '../post/post-dialog/post-dialog.service';
 import { SettingsDialogService } from '../settings/settings-dialog.service';
 
+const SUBSCRIPTION_STORAGE_KEY = '@subscription';
+
+async function saveEncryptedSubscription(cryptoService: CryptoService, rsaPublicKeyService: RsaPublicKeyService, postService: PostService, accountName: string, subscription: PushSubscription | null): Promise<string | null> {
+  const key = SUBSCRIPTION_STORAGE_KEY;
+  const db = await postService.getDB(accountName);
+  if (subscription) {
+    const rsaPublicKey = await rsaPublicKeyService.getPublicKey();
+    const encrypted = await cryptoService.rsaEncrypt(JSON.stringify(subscription), rsaPublicKey);
+    if (encrypted) {
+      await db.put('posts', encrypted, key);
+      return encrypted;
+    }
+  } else {
+    await db.delete('posts', key);
+  }
+  return null;
+}
+
+async function loadEncryptedSubscription(postService: PostService, accountName: string): Promise<string | null> {
+  const key = SUBSCRIPTION_STORAGE_KEY;
+  const db = await postService.getDB(accountName);
+  const result = await db.get('posts', key);
+  return result ?? null;
+}
+
+async function clearSubscription(postService: PostService, accountName: string): Promise<void> {
+  const key = SUBSCRIPTION_STORAGE_KEY;
+  const db = await postService.getDB(accountName);
+  await db.delete('posts', key);
+}
+
 type MenuItem = {
   label: string;
   command: () => void;
@@ -218,11 +249,11 @@ isSignedIn = this.authService.isSignedIn;
       const rsaPublicKey = await this.rsaPublicKeyService.getPublicKey();
       const newEncrypted = await this.cryptoService.rsaEncrypt(JSON.stringify(subscription), rsaPublicKey);
       if (newEncrypted) {
-        await this.postService.saveSubscription(accountName, subscription);
+        await saveEncryptedSubscription(this.cryptoService, this.rsaPublicKeyService, this.postService, accountName, subscription);
         this.roomService.updateWhoamiSubscription(newEncrypted);
       }
     } catch {
-      await this.postService.saveSubscription(accountName, null);
+      await clearSubscription(this.postService, accountName);
     }
   }
 
@@ -250,7 +281,7 @@ isSignedIn = this.authService.isSignedIn;
         if (subscription) {
           await subscription.unsubscribe();
         }
-        await this.postService.saveSubscription(accountName, null);
+        await clearSubscription(this.postService, accountName);
         this.pushSubscription.set(null);
         this.roomService.updateWhoamiSubscription('');
         // Update @settings with pushEnabled: false and broadcast
@@ -273,7 +304,7 @@ isSignedIn = this.authService.isSignedIn;
           throw new Error('Failed to encrypt subscription');
         }
 
-        await this.postService.saveSubscription(accountName, subscription);
+        await saveEncryptedSubscription(this.cryptoService, this.rsaPublicKeyService, this.postService, accountName, subscription);
         this.pushSubscription.set(subscription);
         this.roomService.updateWhoamiSubscription(encrypted);
 

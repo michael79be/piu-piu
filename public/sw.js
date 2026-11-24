@@ -97,6 +97,19 @@ self.addEventListener('push', (event) => {
         return;
       }
 
+      // If push contains post data, save it to IndexedDB
+      if (data.post && data.post.uuid) {
+        console.log('[SW] Checking if post exists:', data.post.uuid);
+        const db = await openDB(accountName);
+        const existing = await dbGet(db, 'posts', data.post.uuid);
+        if (!existing) {
+          console.log('[SW] Saving new post to DB:', data.post.uuid);
+          await dbPut(db, 'posts', data.post.uuid, data.post);
+        } else {
+          console.log('[SW] Post already exists, skipping:', data.post.uuid);
+        }
+      }
+
       const title = data.title || 'Piu-Piu';
       const options = {
         body: data.body || 'New notification',
@@ -151,6 +164,16 @@ function dbGet(db, storeName, key) {
     const store = tx.objectStore(storeName);
     const request = store.get(key);
     request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+function dbPut(db, storeName, key, value) {
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(storeName, 'readwrite');
+    const store = tx.objectStore(storeName);
+    const request = store.put(value, key);
+    request.onsuccess = () => resolve();
     request.onerror = () => reject(request.error);
   });
 }

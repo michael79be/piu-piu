@@ -15,6 +15,37 @@ import { VapidPublicKeyService } from '../crypto/vapid-public-key.service';
 import { CryptoService } from '../crypto/crypto.service';
 import { MessageData } from '../models/post-data';
 
+const SUBSCRIPTION_STORAGE_KEY = '@subscription';
+
+async function saveEncryptedSubscription(cryptoService: CryptoService, rsaPublicKeyService: RsaPublicKeyService, postService: PostService, accountName: string, subscription: PushSubscription | null): Promise<string | null> {
+  const key = SUBSCRIPTION_STORAGE_KEY;
+  const db = await postService.getDB(accountName);
+  if (subscription) {
+    const rsaPublicKey = await rsaPublicKeyService.getPublicKey();
+    const encrypted = await cryptoService.rsaEncrypt(JSON.stringify(subscription), rsaPublicKey);
+    if (encrypted) {
+      await db.put('posts', encrypted, key);
+      return encrypted;
+    }
+  } else {
+    await db.delete('posts', key);
+  }
+  return null;
+}
+
+async function loadEncryptedSubscription(postService: PostService, accountName: string): Promise<string | null> {
+  const key = SUBSCRIPTION_STORAGE_KEY;
+  const db = await postService.getDB(accountName);
+  const result = await db.get('posts', key);
+  return result ?? null;
+}
+
+async function clearSubscription(postService: PostService, accountName: string): Promise<void> {
+  const key = SUBSCRIPTION_STORAGE_KEY;
+  const db = await postService.getDB(accountName);
+  await db.delete('posts', key);
+}
+
 export type AvatarService = 'gravatar' | 'libravatar' | 'custom' | 'none';
 
 const AVATAR_SERVICE_URLS: Record<Exclude<AvatarService, 'none' | 'custom'>, string> = {
@@ -181,6 +212,7 @@ export class SettingsDialogComponent {
           throw new Error('Failed to encrypt subscription');
         }
 
+        await saveEncryptedSubscription(this.cryptoService, this.rsaPublicKeyService, this.postService, accountName, subscription);
         await this.postService.saveSubscription(accountName, subscription);
         this.pushEnabled.set(true);
         this.roomService.updateWhoamiSubscription(encrypted);
@@ -192,6 +224,7 @@ export class SettingsDialogComponent {
         if (subscription) {
           await subscription.unsubscribe();
         }
+        await clearSubscription(this.postService, accountName);
         await this.postService.saveSubscription(accountName, null);
         this.pushEnabled.set(false);
         this.roomService.updateWhoamiSubscription('');

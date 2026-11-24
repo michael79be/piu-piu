@@ -5,7 +5,7 @@ import { ErrorService } from '../error/error.service';
 import { CryptoService } from '../crypto/crypto.service';
 import { SESSION_KEY } from '../auth/auth.enum';
 import { SignerInfo } from '../models/signer-info';
-import { getProviderByUrl } from '../provider/provider.enum';
+import { getProviderByPrefix } from '../provider/provider.enum';
 
 @Injectable({ providedIn: 'root' })
 export class AuthService {
@@ -58,8 +58,8 @@ export class AuthService {
     const username = result.username ?? accountName;
 
     const profile = this.profileService.getProfileData();
-    const providerUrl = profile?.provider ?? '';
-    const providerSuffix = getProviderByUrl(providerUrl)?.prefix ?? '';
+    const providerPrefix = profile?.provider ?? '';
+    const providerSuffix = getProviderByPrefix(providerPrefix)?.prefix ?? '';
 
     const accountWithSuffix = providerSuffix ? `${accountName}/${providerSuffix}` : accountName;
 

@@ -1,4 +1,4 @@
-import { Injectable, signal, computed, inject, NgZone } from '@angular/core';
+import { Injectable, signal, computed, inject, NgZone, OnDestroy } from '@angular/core';
 import { TuiToastService } from '@taiga-ui/kit';
 import type { Room, PeerJoinContext, PeerLeaveContext } from '@trystero-p2p/core';
 import { SESSION_KEY } from '../auth/auth.enum';
@@ -14,7 +14,7 @@ import { createProvideAction, type ProvideAction } from './provide';
 import { SignerInfo } from '../models/signer-info';
 import { WhoamiPayload } from '../models/whoami';
 import { ProfileService } from '../profile/profile.service';
-import { getProviderByUrl } from '../provider/provider.enum';
+import { getProviderByPrefix } from '../provider/provider.enum';
 
 export interface Peer {
   id: string;
@@ -38,7 +38,7 @@ export interface ProvidePayload {
 const GLOBAL_ROOM_NAME = 'piu-piu';
 
 @Injectable({ providedIn: 'root' })
-export class RoomService {
+export class RoomService implements OnDestroy {
   private toastService = inject(TuiToastService);
   private postService = inject(PostService);
   private cryptoService = inject(CryptoService);
@@ -48,7 +48,7 @@ export class RoomService {
 
   private profileService = inject(ProfileService);
 
-  private roomInstances = new Map<string, Room>(); // Track multiple rooms by accountName
+  private roomInstance = signal<Room | null>(null);
   private globalRoomInstance = signal<Room | null>(null);
   private globalWhoamiAction: WhoamiAction = createWhoamiAction();
   private globalRequestAction: RequestAction = createRequestAction();
@@ -56,10 +56,10 @@ export class RoomService {
   private postAction: PostAction = createPostAction();
   private requestAction: RequestAction = createRequestAction();
   private provideAction: ProvideAction = createProvideAction();
-  private joinRoomLock = Promise.resolve(); // Lock to prevent concurrent joins
 
-  // Current active account room
-  private currentAccountRoom: Room | null = null;
+  // Separate locks for account room and global room
+  private accountJoinLock = Promise.resolve();
+  private globalJoinLock = Promise.resolve();
 
   peers = signal<Peer[]>([]);
   globalPeers = signal<Peer[]>([]);
@@ -73,27 +73,29 @@ export class RoomService {
 
   private pollingIntervals: ReturnType<typeof setInterval>[] = [];
 
+  // Initialize from sessionStorage on service creation
+  constructor() {
+  }
+
+  ngOnDestroy(): void {
+    this.leaveRoom();
+    this.leaveGlobalRoom();
+  }
+
   async joinRoom(accountName: string): Promise<void> {
-    // Use lock to prevent concurrent joins
-    await this.joinRoomLock;
+    // Wait for any ongoing account room join to complete
+    await this.accountJoinLock;
     
-    // If already in this room, don't rejoin
-    if (this.roomInstances.has(accountName)) {
-      const existingRoom = this.roomInstances.get(accountName);
-      if (existingRoom) {
-        this.currentAccountRoom = existingRoom;
-      }
-      this.currentAccount.set(accountName);
+    // Check again after lock
+    if (this.roomInstance() && this.currentAccount() === accountName) {
       console.debug('🟢 [Room] Already in room:', accountName);
       return;
     }
 
-    // Leave current room if different
-    if (this.currentAccountRoom && this.currentAccount() !== accountName) {
+    // Create new lock for this join operation
+    this.accountJoinLock = (async () => {
       this.leaveRoom();
-    }
 
-    this.joinRoomLock = (async () => {
       try {
         const { joinRoom } = await import('trystero');
         const room = joinRoom(
@@ -101,8 +103,7 @@ export class RoomService {
           accountName
         );
 
-        this.roomInstances.set(accountName, room);
-        this.currentAccountRoom = room;
+        this.roomInstance.set(room);
         this.isConnected.set(true);
         this.currentAccount.set(accountName);
         this.peers.set([]);
@@ -162,107 +163,123 @@ export class RoomService {
         this.startPolling(accountName);
 
       } catch (error) {
-        console.error('🔴 [Room] Failed to join room:', error);
-        this.toastService.open('Failed to join room', { appearance: 'negative', autoClose: 5000 }).subscribe();
-        this.roomInstances.delete(accountName);
-        if (this.currentAccountRoom === this.roomInstances.get(accountName)) {
-          this.currentAccountRoom = null;
+        const msg = error instanceof Error ? error.message : String(error);
+        if (msg.includes('already joined room')) {
+          console.debug('🟢 [Room] Room already joined (race):', msg);
+        } else {
+          console.error('🔴 [Room] Failed to join room:', error);
+          this.toastService.open('Failed to join room', { appearance: 'negative', autoClose: 5000 }).subscribe();
         }
       }
-    })();
-    
-    await this.joinRoomLock;
+})();
+     
+    await this.accountJoinLock;
   }
 
   async joinGlobalRoom(): Promise<void> {
+    // Wait for any ongoing global room join to complete
+    await this.globalJoinLock;
+    
+    // Check again after lock
     if (this.globalRoomInstance() || this.isGlobalConnected()) {
       return;
     }
 
-    try {
-      const { joinRoom } = await import('trystero');
-      const room = joinRoom(
-        { appId: 'piu-piu' },
-        GLOBAL_ROOM_NAME
-      );
+    this.globalJoinLock = (async () => {
+      this.leaveGlobalRoom();
 
-      this.globalRoomInstance.set(room);
-      this.isGlobalConnected.set(true);
-      this.globalPeers.set([]);
+      try {
+        const { joinRoom } = await import('trystero');
+        const room = joinRoom(
+          { appId: 'piu-piu' },
+          GLOBAL_ROOM_NAME
+        );
 
-      const selfInfo = await room.getSelf();
-      console.info('🔵 [Room] Joined global room:', GLOBAL_ROOM_NAME, 'selfId:', selfInfo.userId);
+        this.globalRoomInstance.set(room);
+        this.isGlobalConnected.set(true);
+        this.globalPeers.set([]);
 
-      this.globalWhoamiAction.init(room.makeAction('whoami'));
-      this.globalWhoamiAction.onMessage((data: WhoamiPayload, context: { peerId: string; userId: string }) => {
-        console.debug('🟢 [Room] Global whoami received from:', context.peerId, 'account:', data.account);
-        const peer = this.globalPeers().find(p => p.id === context.peerId);
-        if (peer) {
-          this.globalPeers.update(current =>
-            current.map(p => p.id === context.peerId ? { ...p, signerInfo: { ...p.signerInfo!, username: data.username, account: data.account, providerSuffix: data.providerSuffix, subscription: data.subscription } } : p)
-          );
-        } else {
-          const newPeer: Peer = {
-            id: context.peerId,
-            name: data.username,
-            joinedAt: Date.now(),
-            signerInfo: {
-              username: data.username,
-              account: data.account,
-              providerSuffix: data.providerSuffix,
-              subscription: data.subscription,
-            } as any,
-          };
-          this.globalPeers.update(current => [...current, newPeer]);
-        }
-      });
+        const selfInfo = await room.getSelf();
+        console.info('🔵 [Room] Joined global room:', GLOBAL_ROOM_NAME, 'selfId:', selfInfo.userId);
 
-      // Handle request in global room - respond if we own the account
-      this.globalRequestAction = createRequestAction();
-      this.globalRequestAction.init(room.makeAction('request'));
-      this.globalRequestAction.onMessage(async (data: RequestPayload, context: { peerId: string; userId: string }) => {
-        console.debug('🟢 [Room] Global request received from:', context.peerId, 'account:', data.accountName);
-        await this.zone.run(() => this.handleRequest(data, context.peerId, true));
-      });
-
-      // Provide action for global room
-      this.globalProvideAction = createProvideAction();
-      this.globalProvideAction.init(room.makeAction('provide'));
-
-      room.onPeerJoin((context: PeerJoinContext) => {
-        const users = room.getUsers();
-        const userInfo = users[context.userId];
-        const peer: Peer = {
-          id: context.peerId,
-          name: userInfo?.peerIds?.[0] ?? context.userId,
-          joinedAt: Date.now(),
-        };
-        this.globalPeers.update(current => {
-          if (current.find(p => p.id === peer.id)) return current;
-          return [...current, peer];
+        this.globalWhoamiAction.init(room.makeAction('whoami'));
+        this.globalWhoamiAction.onMessage((data: WhoamiPayload, context: { peerId: string; userId: string }) => {
+          console.debug('🟢 [Room] Global whoami received from:', context.peerId, 'account:', data.account);
+          const peer = this.globalPeers().find(p => p.id === context.peerId);
+          if (peer) {
+            this.globalPeers.update(current =>
+              current.map(p => p.id === context.peerId ? { ...p, signerInfo: { ...p.signerInfo!, username: data.username, account: data.account, providerSuffix: data.providerSuffix, subscription: data.subscription } } : p)
+            );
+          } else {
+            const newPeer: Peer = {
+              id: context.peerId,
+              name: data.username,
+              joinedAt: Date.now(),
+              signerInfo: {
+                username: data.username,
+                account: data.account,
+                providerSuffix: data.providerSuffix,
+                subscription: data.subscription,
+              } as any,
+            };
+            this.globalPeers.update(current => [...current, newPeer]);
+          }
         });
-        console.debug('🟢 [Room] Global peer joined:', context.peerId, 'userId:', context.userId);
-        this.announceGlobalIfSignedIn(context.peerId);
-      });
 
-      room.onPeerLeave((context: PeerLeaveContext) => {
-        this.globalPeers.update(current => current.filter(p => p.id !== context.peerId));
-        console.debug('🟢 [Room] Global peer left:', context.peerId, 'userId:', context.userId);
-      });
+        // Handle request in global room - respond if we own the account
+        this.globalRequestAction = createRequestAction();
+        this.globalRequestAction.init(room.makeAction('request'));
+        this.globalRequestAction.onMessage(async (data: RequestPayload, context: { peerId: string; userId: string }) => {
+          console.debug('🟢 [Room] Global request received from:', context.peerId, 'account:', data.accountName);
+          await this.zone.run(() => this.handleRequest(data, context.peerId, true));
+        });
 
-      await room.ready;
+        // Provide action for global room
+        this.globalProvideAction = createProvideAction();
+        this.globalProvideAction.init(room.makeAction('provide'));
 
-      this.announceGlobalIfSignedIn();
+        room.onPeerJoin((context: PeerJoinContext) => {
+          const users = room.getUsers();
+          const userInfo = users[context.userId];
+          const peer: Peer = {
+            id: context.peerId,
+            name: userInfo?.peerIds?.[0] ?? context.userId,
+            joinedAt: Date.now(),
+          };
+          this.globalPeers.update(current => {
+            if (current.find(p => p.id === peer.id)) return current;
+            return [...current, peer];
+          });
+          console.debug('🟢 [Room] Global peer joined:', context.peerId, 'userId:', context.userId);
+          this.announceGlobalIfSignedIn(context.peerId);
+        });
 
-      // Update follow lastId from local databases after joining global room
-      const signer = this.authService?.storedSigner?.();
-      if (signer?.account) {
-        await this.postService.getFollow(signer.account);
+        room.onPeerLeave((context: PeerLeaveContext) => {
+          this.globalPeers.update(current => current.filter(p => p.id !== context.peerId));
+          console.debug('🟢 [Room] Global peer left:', context.peerId, 'userId:', context.userId);
+        });
+
+        await room.ready;
+
+        this.announceGlobalIfSignedIn();
+
+        // Update follow lastId from local databases after joining global room
+        const signer = this.authService?.storedSigner?.();
+        if (signer?.account) {
+          await this.postService.getFollow(signer.account);
+        }
+
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : String(error);
+        if (msg.includes('already joined room')) {
+          console.debug('🟢 [Room] Global room already joined (race):', msg);
+        } else {
+          console.error('🔴 [Room] Failed to join global room:', error);
+        }
       }
-
-    } catch (error) {
-      console.error('🔴 [Room] Failed to join global room:', error);
-    }
+})();
+     
+    await this.globalJoinLock;
   }
 
   leaveGlobalRoom(): void {
@@ -461,22 +478,13 @@ private stopPolling(): void {
 
     try {
       const signer = JSON.parse(stored) as SignerInfo;
-      // Preserve existing subscription (PushSubscription) from signer, 
-      // only encrypt account name if no subscription exists
-      let subscription = signer.subscription ?? undefined;
-      if (!subscription) {
-        // Fetch RSA public key and encrypt account name for subscription field
-        const rsaPublicKey = await this.rsaPublicKeyService.getPublicKey();
-        const encrypted = await this.cryptoService.rsaEncrypt(signer.account, rsaPublicKey);
-        if (encrypted) {
-          subscription = encrypted;
-        }
-      }
+      // Only include PushSubscription in whoami, not the encrypted account name fallback
+      const subscription = signer.subscription ?? undefined;
       
       // Get provider suffix from profile
       const profile = this.profileService.getProfileData();
-      const providerUrl = profile?.provider ?? '';
-      const providerSuffix = getProviderByUrl(providerUrl)?.prefix ?? '';
+      const providerPrefix = profile?.provider ?? '';
+      const providerSuffix = getProviderByPrefix(providerPrefix)?.prefix ?? '';
       
       // Get full follow data (signed)
       let follow: FollowData | undefined;
@@ -505,8 +513,8 @@ private stopPolling(): void {
     try {
       const signer = JSON.parse(stored) as SignerInfo;
       const profile = this.profileService.getProfileData();
-      const providerUrl = profile?.provider ?? '';
-      const providerSuffix = getProviderByUrl(providerUrl)?.prefix ?? '';
+      const providerPrefix = profile?.provider ?? '';
+      const providerSuffix = getProviderByPrefix(providerPrefix)?.prefix ?? '';
       
       const payload: WhoamiPayload = {
         username: signer.username,
@@ -532,13 +540,10 @@ private stopPolling(): void {
     this.stopPolling();
     
     // Leave current room
-    if (this.currentAccountRoom) {
-      this.currentAccountRoom.leave();
-      const account = this.currentAccount();
-      if (account) {
-        this.roomInstances.delete(account);
-      }
-      this.currentAccountRoom = null;
+    const room = this.roomInstance();
+    if (room) {
+      room.leave();
+      this.roomInstance.set(null);
     }
     
     // Reset actions
