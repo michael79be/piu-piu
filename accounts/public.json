@@ -1,5 +1,5 @@
 {
-  "updatedAt": 1795555940719,
+  "updatedAt": 1795558623975,
   "count": 3,
   "accounts": [
     {
@@ -9,23 +9,31 @@
       "subscription": "KlBtfWjvzCbdG/s3dWIyt1sN5rHuywUweouUJB201RbvBXWfOYIVLpRxuLgk/sXrK/dApnd8RyPlHAAc88NjLw6mg6VKaHJRJ74nJjtP2miBi/cMvvwWsg45tYlaRw0IAvI2F3tJ6O+koIIlOaZ6JQYFGEelF/unF1lqLpXqmYXzfiSqwNQDiknZLNDIv/FQm1Fc/Vw2lrRQY+G1f036ltT3LwH8SfV4rfHIO7BzMKdvEP8kXqbVVt9KDy5NCmwpO7VwOi/pAk2T9qSgQiK3MdHVUnkM3QGqi5/XqKftwWiQ6TWKFB/YdGYcwAkk2UceppEhBjpwq3EZvNamaA9cYlvCBZFLj+d8ZHEhUhssUkGWqg9aOiHiqEmPjUDzFLDioM8RgfK2GzCQ/1yyaJmNQRVAX8KR/EP8LnbK8CpWF73RlEKGUoZr+2SCpmNJh8dWf+9i8BYMZUktzNaxovjcXyzF8jyfwLwHrRNQyQHeqRXf4pfdxMll+Rwox4Gsg2P8GllvMn0kOreYw0imvnZZJ05Nk2aXwNQu+p/49kqFJL56uOjtm1cnumE2xN7I+J+bwZS7uH/odRNyNvEYKwdwgJhjiUpDHmKNBnQMNsSZGGrHwT+/OzirUKVv0N/Yz8gXiA9Rqft6CR9HS3DFmxnVsN0+0qqkwyLrE4DQ13VYrpXoSZCpLKlh7v2iziJmiopeMKs8wI2Rm27FACEKlanK7KQ7NhHP1X7EhLR1iuQWd6SnpnI4RqECERicKWr4htFzcJuBne1qt0kCPDlHD6Jj7gugcp2A0tFMNKxcPxYJ5vm1YKPinDd1YZgPd1db0d7Y5xIoyl/e2PMYnvjw3ei/dURejLgk4VgXUg==",
       "follow": {
         "uuid": "@follow",
-        "follows": {
-          "piupiu": "https://is.gd/piupiu",
-          "olivier/l": "http://localhost:3000/olivier"
-        },
+        "follows": [
+          {
+            "accountName": "piupiu",
+            "profileUrl": "https://is.gd/piupiu",
+            "lastId": "59aaa428-36ce-4ddf-a0ec-552c9a6f77f4"
+          },
+          {
+            "accountName": "olivier/l",
+            "profileUrl": "http://localhost:3000/olivier",
+            "lastId": "01a20f3b-d3d8-72c4-a16f-fb55612496dd"
+          }
+        ],
         "signature": "MEYCIQCHoQgRIsMGwVxmp6FCi+3rvqR6BEEdhWK12xzUpn2SLAIhAMtBmichPVltaLovK9Ybaa0s1iaCS0jSliBFMx6a3225",
         "authenticatorData": "SZYN5YgOjGh0NBcPZHZgW4/krrmihjLHmVzzuoMdl2MdAAAAAA==",
         "clientData": "eyJ0eXBlIjoid2ViYXV0aG4uZ2V0IiwiY2hhbGxlbmdlIjoidGpLLWJ0Z1VSZndnbEFKb0dfNHdwQUs3U0U3azAzSU50LTZxVVVVMXpXRSIsIm9yaWdpbiI6Imh0dHA6Ly9sb2NhbGhvc3Q6NDIwMCIsImNyb3NzT3JpZ2luIjpmYWxzZX0=",
         "publicKey": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE4l3iS3AUHhR166O1LI2kcvf8R5UgxWSYIcsiUldFAfBtj95oqyyNRYwVKDwmjk8gxjqKMprX8cezGGcUZTu+tQ=="
       },
-      "lastSeen": 1795555867731
+      "lastSeen": 1795558611861
     },
     {
       "username": "olivier",
       "account": "olivier/l",
       "providerSuffix": "",
-      "subscription": "FQnbPiUaoxxyUN5U4u4/jy83/VntRVjPqVbNKEMWCksnZGv7CTH7qHTQ85gfVtKBFZwmsMY0UpTjHfRTYSO020IVgbrdJnW5IoF0un1J7zcRwJztidqi/nHqQTULbsSgqRuSAuSbbvUrmwo3nJdV0t0IsQYD97yQuh8lzF6BIooPWxugBORRBZbI7pHTAiPhmuJy9uF5NN22dPUBaxKypZToQDY/qhVM8RE/ZxIvrn3tIKVXSoH/mbNW3GhQMuoRGwJFRo5KfqF27LYvu0iWjkJqofkqzbOKX1jtvuNSGbcV5E0ssrsMEwc6oEs2+namkh2xQ+GQNsD3Ip7JPaqpOyy1fJfVaXU0buUs5d+0AJ+aSa2nQuRf5ZeF2G1DrB5x8pbcZ1Q=",
-      "lastSeen": 1795555867729
+      "subscription": "KtrzR63jO+ECle1XBt8dEm6Ex6xJ6RUg8wWZ12KiF9ClMLg5dzTGiIqs0hbrhdX5QBYeY5HmRfqrey/enmVCdq7BUT+LnH9pynDu2/BYhhs9NQLcQuKUJqbfJAyHu3qdte2Ox/x4i4iJKxyBw9HfYREEGabyT+go2SzugylrCLveUzRgrYrPE3Nd2RWodMqX+T0+ZgBAwsVvqihiqvI4UB9IpKRz9pVYzusDx4VLti+n9DK+qAr07s4gXtz61CshG0VTuVMkIsNlDStnFVVZ8QcrZK/3kwi93FzqIHtmFdXNyFDkfL3bG72OD1xZlLVJU59n+rfIYVaj1dk+3z3L3YuAIOHgJg/UU445K9kSDGVfbbiJnfgkvZXt6SfZEcUs1EFW/xU=",
+      "lastSeen": 1795558611828
     },
     {
       "username": "piupiu",
