@@ -113,10 +113,9 @@ export class PostService {
     const db = await this.getDB(accountName);
     const data = await db.get('posts', uuid);
     if (!data) return null;
-    const post = JSON.parse(data);
-    const result = this.deserializePost(post);
-    if ('sender' in result) {
-      return result as MessageData;
+    const post = this.deserializePost(typeof data === 'string' ? JSON.parse(data) : data);
+    if ('sender' in post) {
+      return post as MessageData;
     }
     return null;
   }
@@ -132,7 +131,8 @@ export class PostService {
     const posts: MessageData[] = [];
     for (let i = 0; i < allKeys.length; i++) {
       if (typeof allKeys[i] === 'string' && allKeys[i].startsWith('@')) continue;
-      const post = this.deserializePost(JSON.parse(allValues[i]));
+      const value = allValues[i];
+      const post = this.deserializePost(typeof value === 'string' ? JSON.parse(value) : value);
       if ('sender' in post) {
         posts.push(post as MessageData);
       }
@@ -154,7 +154,7 @@ export class PostService {
       const value = allValues[i];
       if (typeof key === 'string' && key.startsWith('@')) {
         try {
-          const parsed = JSON.parse(value);
+          const parsed = typeof value === 'string' ? JSON.parse(value) : value;
           results.push(parsed);
         } catch {
           // Ignore parse errors
@@ -205,7 +205,19 @@ export class PostService {
     const db = await this.getDB(accountName);
     const data = await db.get('posts', '@subscription');
     if (!data) return null;
-    const subData = JSON.parse(data) as SubscriptionData;
+    
+    let subData: SubscriptionData;
+    try {
+      const parsed = typeof data === 'string' ? JSON.parse(data) : data;
+      // Handle both old (string) and new (object) formats
+      if (parsed && parsed.uuid === 'subscription' && parsed.value) {
+        subData = typeof parsed.value === 'string' ? JSON.parse(parsed.value) : parsed.value;
+      } else {
+        subData = parsed;
+      }
+    } catch {
+      return null;
+    }
     
     // Reconstruct PushSubscription from stored data
     const keys = {
@@ -297,7 +309,7 @@ export class PostService {
     const db = await this.getDB(accountName);
     const data = await db.get('posts', '@settings');
     if (!data) return null;
-    const parsed = JSON.parse(data) as SettingsData;
+    const parsed = typeof data === 'string' ? JSON.parse(data) : data;
     return parsed;
   }
 
@@ -419,7 +431,7 @@ export class PostService {
     const db = await this.getDB(accountName);
     const data = await db.get('posts', '@follow');
     if (!data) return null;
-    const parsed = JSON.parse(data) as FollowData;
+    const parsed = typeof data === 'string' ? JSON.parse(data) : data;
     
     // Migration: convert old Record<string, string> format to new Followed[] format
     if (parsed.follows && !Array.isArray(parsed.follows)) {
@@ -622,7 +634,7 @@ export class PostService {
     return verifiedPosts;
   }
 
-  async getAllPostsWithFullData(accountName: string): Promise<MessageData[]> {
+  async getAllPostsWithFullData(accountName: string, includeMeta = false): Promise<MessageData[]> {
     const db = await this.getDB(accountName);
     const tx = db.transaction('posts', 'readonly');
     const store = tx.objectStore('posts');
@@ -632,8 +644,12 @@ export class PostService {
     
     const posts: MessageData[] = [];
     for (let i = 0; i < allKeys.length; i++) {
-      if (typeof allKeys[i] === 'string' && allKeys[i].startsWith('@')) continue;
-      const post = this.deserializePost(JSON.parse(allValues[i]));
+      const key = allKeys[i];
+      if (typeof key === 'string' && key.startsWith('@') && !includeMeta) continue;
+      // Never sync @subscription (private)
+      if (key === '@subscription') continue;
+      const value = allValues[i];
+      const post = this.deserializePost(typeof value === 'string' ? JSON.parse(value) : value);
       if ('sender' in post) {
         posts.push(post as MessageData);
       }

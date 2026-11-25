@@ -148,14 +148,12 @@ async function sendPushNotification(account, posts, vapidPublicKey, privateKey) 
     );
 
     const payload = JSON.stringify({
-      title: `Piu-Piu: ${posts.length} new post${posts.length > 1 ? 's' : ''}`,
-      body: posts[0]?.content ? posts[0].content.substring(0, 100) : 'New posts available',
-      accountName: account.account,
-      data: { newPosts: posts.map(p => p.uuid), timestamp: Date.now() }
+      targetAccount: account.account,  // Who receives the push
+      posts: posts // Include full posts with signatures for SW to verify/save
     });
     
     await sendNotification(subscription, payload);
-    console.log(`[push] Sent notification to @${account.username} for ${posts.length} post(s)`);
+    console.log(`[push] Sent notification to @${account.username} for ${posts.length} post(s) from @${account.account}`);
     return { sent: 1, failed: 0, skipped: 0 };
   } catch (error) {
     console.error(`[push] Failed to send to @${account.username}:`, error.message);
@@ -322,63 +320,53 @@ async function fetchFollowedPosts(followedAccountsSet, followDataMap, accountsMa
     globalRoom = null;
   }
   
+  // Request posts from ALL collected accounts, not just followed ones
+  const allAccounts = new Set();
+  for (const entry of accountsMap.values()) {
+    allAccounts.add(entry.account);
+  }
+  // Also include followed accounts (may not be in accountsMap yet)
   for (const account of followedAccountsSet) {
+    allAccounts.add(account);
+  }
+  
+  // Single join - use global room for all requests
+  // The global room handler in RoomService will respond if any peer has the data
+  for (const account of allAccounts) {
     try {
       console.log(`[fetch] Requesting posts from @${account}...`);
       
-      const room = joinRoom(
-        { appId: APP_ID, rtcPolyfill: RTCPeerConnection, relay: 'wss://yabu.me/' },
-        account
-      );
-
-      const requestAction = room.makeAction('request');
-      const provideAction = room.makeAction('provide');
+      if (!globalRequestAction) {
+        console.warn('[fetch] Global request action not available, skipping');
+        accountBounds.set(account, { firstId: null, lastId: null, count: 0 });
+        continue;
+      }
       
       let postsReceived = [];
       
-      // Listen for provide response in account room
-      provideAction.onMessage((data) => {
-        if (data.accountName === account && data.posts) {
-          postsReceived = data.posts;
-        }
-      });
-
-      // Wait for room ready
-      await Promise.race([
-        room.ready,
-        new Promise((_, reject) => setTimeout(() => reject(new Error('Connection timeout')), 15000)),
-      ]);
-
-      // Check if we have existing follow data with lastId for incremental sync
-      const existingFollowData = followDataMap.get(account);
-      const lastId = existingFollowData?.follows?.[0]?.lastId; // Use first follow's lastId as sync point
-      
-      // Send request for posts - use after=lastId for incremental sync
-      const requestPayload = {
-        accountName: account,
-        requesterId: 'pull_accounts',
-      };
-      if (lastId) {
-        requestPayload.after = lastId;
-        console.log(`[fetch] Incremental sync from @${account} after ${lastId}`);
+      // Check if we already received posts for this account via global room
+      if (globalPostsReceived.has(account)) {
+        postsReceived = globalPostsReceived.get(account);
       } else {
+        // Send request for posts - use full sync (no lastId)
+        const requestPayload = {
+          accountName: account,
+          requesterId: 'pull_accounts',
+        };
         console.log(`[fetch] Full sync from @${account} (fetching all posts)`);
-      }
-      requestAction.send(requestPayload);
-      
-      // ALSO broadcast request in global room where account owners are online
-      if (globalRequestAction) {
         console.log(`[fetch] Broadcasting request for @${account} in global room`);
         globalRequestAction.send(requestPayload);
+        
+        // Wait for response
+        await new Promise(resolve => setTimeout(resolve, 5000));
+        
+        if (globalPostsReceived.has(account)) {
+          postsReceived = globalPostsReceived.get(account);
+        }
       }
-
-      // Wait for response
-      await new Promise(resolve => setTimeout(resolve, 5000));
-
-      // Also check global room responses
-      if (globalPostsReceived.has(account)) {
-        postsReceived = [...postsReceived, ...globalPostsReceived.get(account)];
-        // Deduplicate by uuid
+      
+      // Deduplicate by uuid
+      if (postsReceived.length > 0) {
         const seen = new Set();
         postsReceived = postsReceived.filter(p => {
           if (seen.has(p.uuid)) return false;
@@ -386,7 +374,7 @@ async function fetchFollowedPosts(followedAccountsSet, followDataMap, accountsMa
           return true;
         });
       }
-
+      
       if (postsReceived.length > 0) {
         console.log(`[fetch] Received ${postsReceived.length} posts from @${account}`);
         // Posts are sorted by timestamp descending (newest first)
@@ -394,12 +382,10 @@ async function fetchFollowedPosts(followedAccountsSet, followDataMap, accountsMa
         const lastId = postsReceived[postsReceived.length - 1].uuid;  // oldest
         accountBounds.set(account, { firstId, lastId, count: postsReceived.length });
         
-        // Send push notifications to followers who follow this account
+        // Send push notifications to ALL accounts with subscriptions (ALWAYS push)
         if (vapidPublicKey && privateKey) {
           for (const [followerAccount, followerData] of accountsMap) {
-            // Check if this follower follows the account that posted
-            const follows = followerData.follow?.follows;
-            if (follows && follows.some(f => f.accountName === account)) {
+            if (followerData.subscription) {
               await sendPushNotification(followerData, postsReceived, vapidPublicKey, privateKey);
             }
           }
@@ -408,8 +394,6 @@ async function fetchFollowedPosts(followedAccountsSet, followDataMap, accountsMa
         console.log(`[fetch] No new posts from @${account}`);
         accountBounds.set(account, { firstId: null, lastId: null, count: 0 });
       }
-
-      room.leave();
     } catch (e) {
       console.warn(`[fetch] Failed to get posts from @${account}:`, e.message);
       accountBounds.set(account, { firstId: null, lastId: null, count: 0 });

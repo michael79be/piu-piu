@@ -82,49 +82,69 @@ self.addEventListener('push', (event) => {
     }
   }
 
-  const accountName = data.accountName;
+  const targetAccount = data.targetAccount || data.accountName;
+  const accountName = targetAccount;
   if (!accountName) {
-    console.log('[SW] No accountName in push data, skipping notification');
+    console.log('[SW] No accountName in push data, skipping');
     return;
   }
 
   event.waitUntil(
     (async () => {
-      // Check if this account has a valid subscription in IndexedDB
-      const hasSubscription = await checkAccountSubscription(accountName);
+      // Check if target account has a valid subscription in IndexedDB
+      const hasSubscription = await checkAccountSubscription(targetAccount);
       if (!hasSubscription) {
-        console.log('[SW] No valid subscription for account:', accountName, 'skipping notification');
+        console.log('[SW] No valid subscription for account:', targetAccount, 'skipping');
         return;
       }
 
-      // If push contains post data, save it to IndexedDB
-      if (data.post && data.post.uuid) {
-        console.log('[SW] Checking if post exists:', data.post.uuid);
-        const db = await openDB(accountName);
-        const existing = await dbGet(db, 'posts', data.post.uuid);
-        if (!existing) {
-          console.log('[SW] Saving new post to DB:', data.post.uuid);
-          await dbPut(db, 'posts', data.post.uuid, data.post);
-        } else {
-          console.log('[SW] Post already exists, skipping:', data.post.uuid);
+      console.log('[SW] Processing push for target account:', targetAccount);
+
+      // If push contains posts array, save all posts to IndexedDB
+      if (data.posts && Array.isArray(data.posts)) {
+        // Group posts by senderAccount and store in respective databases
+        const postsByAccount = new Map();
+        for (const post of data.posts) {
+          let postObj = post;
+          if (typeof post === 'string') {
+            try {
+              postObj = JSON.parse(post);
+            } catch {
+              console.warn('[SW] Failed to parse post string:', post);
+              continue;
+            }
+          }
+          
+          if (postObj && postObj.uuid) {
+            // Determine which account this post belongs to (use senderAccount from post)
+            const postAccount = postObj.senderAccount;
+            if (!postAccount) {
+              console.warn('[SW] Post missing senderAccount:', postObj.uuid);
+              continue;
+            }
+            if (!postsByAccount.has(postAccount)) {
+              postsByAccount.set(postAccount, []);
+            }
+            postsByAccount.get(postAccount).push(postObj);
+          }
+        }
+        
+        // Save posts to each account's database
+        for (const [postAccount, posts] of postsByAccount) {
+          const db = await openDB(postAccount);
+          for (const postObj of posts) {
+            const isMetaPost = postObj.uuid.startsWith('@');
+            console.log('[SW] Checking if post exists:', postObj.uuid, isMetaPost ? '(meta)' : '', 'for account:', postAccount);
+            const existing = await dbGet(db, 'posts', postObj.uuid);
+            if (!existing || isMetaPost) {
+              console.log('[SW] Saving', isMetaPost ? 'meta ' : '', 'post to DB:', postObj.uuid, 'for account:', postAccount);
+              await dbPut(db, 'posts', postObj.uuid, postObj);
+            } else {
+              console.log('[SW] Post already exists, skipping:', postObj.uuid, 'for account:', postAccount);
+            }
+          }
         }
       }
-
-      const title = data.title || 'Piu-Piu';
-      const options = {
-        body: data.body || 'New notification',
-        icon: '/icons/icon-192x192.png',
-        badge: '/icons/icon-72x72.png',
-        vibrate: [200, 100, 200],
-        data: data.data || {},
-        actions: [
-          { action: 'open', title: 'Open' },
-          { action: 'close', title: 'Close' },
-        ],
-        requireInteraction: true,
-      };
-
-      await self.registration.showNotification(title, options);
     })()
   );
 });

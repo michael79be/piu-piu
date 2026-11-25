@@ -230,7 +230,7 @@ export class RoomService implements OnDestroy {
         this.globalRequestAction = createRequestAction();
         this.globalRequestAction.init(room.makeAction('request'));
         this.globalRequestAction.onMessage(async (data: RequestPayload, context: { peerId: string; userId: string }) => {
-          console.debug('🟢 [Room] Global request received from:', context.peerId, 'account:', data.accountName);
+          console.info('🔵 [Room] Global request received from:', context.peerId, 'account:', data.accountName);
           await this.zone.run(() => this.handleRequest(data, context.peerId, true));
         });
 
@@ -306,10 +306,24 @@ export class RoomService implements OnDestroy {
   }
 
   private async handleRequest(data: RequestPayload, peerId: string, isGlobal = false): Promise<void> {
-    const accountName = isGlobal ? data.accountName : this.currentAccount();
-    if (!accountName || (!isGlobal && accountName !== data.accountName)) return;
+    let accountName: string;
+    // For global room: respond if we have data for this account locally
+    // For account room: only respond if it's our account
+    if (isGlobal) {
+      accountName = data.accountName;
+      if (!accountName) return;
+      // Check if we have any posts for this account in our DB
+      const posts = await this.postService.getAllPostsWithFullData(accountName, true);
+      console.info('🔵 [Room] Global request check for:', accountName, 'found posts:', posts.length);
+      if (posts.length === 0) return;
+    } else {
+      const currentAcc = this.currentAccount();
+      if (!currentAcc || currentAcc !== data.accountName) return;
+      accountName = currentAcc;
+    }
 
-    let posts = await this.postService.getAllPostsWithFullData(accountName);
+    // Include meta posts (@settings, @follow) for global room requests (pull_accounts)
+    let posts = await this.postService.getAllPostsWithFullData(accountName, isGlobal);
 
     if (data.before) {
       const beforeIndex = posts.findIndex(p => p.uuid === data.before);
@@ -378,39 +392,52 @@ export class RoomService implements OnDestroy {
     }
   }
 
-  private async handleIncomingPost(post: MessageData): Promise<void> {
+  private async handleIncomingPost(post: MessageData | string): Promise<void> {
     const accountName = this.currentAccount();
     if (!accountName) return;
 
-    const isMeta = post.uuid === '@settings' || post.uuid === '@follow';
+    // Ensure post is an object (handle potential double-encoded strings)
+    let postObj: MessageData;
+    if (typeof post === 'string') {
+      try {
+        postObj = JSON.parse(post);
+      } catch {
+        console.warn('🟡 [Room] Failed to parse post string:', post);
+        return;
+      }
+    } else {
+      postObj = post;
+    }
+
+    const isMeta = postObj.uuid === '@settings' || postObj.uuid === '@follow';
 
     if (!isMeta) {
-      const publicKey = post.publicKey;
+      const publicKey = postObj.publicKey;
       if (!publicKey || publicKey.length === 0) {
-        console.warn('🟡 [Room] No public key in post from:', post.senderAccount);
+        console.warn('🟡 [Room] No public key in post from:', postObj.senderAccount);
         return;
       }
 
-      const isValid = await this.postService.verifyPost(post);
+      const isValid = await this.postService.verifyPost(postObj);
       if (!isValid) {
-        console.warn('🟡 [Room] Invalid post signature from:', post.senderAccount);
+        console.warn('🟡 [Room] Invalid post signature from:', postObj.senderAccount);
         return;
       }
 
-      const existing = await this.postService.getPost(accountName, post.uuid);
+      const existing = await this.postService.getPost(accountName, postObj.uuid);
       if (existing) {
-        console.debug('🟢 [Room] Post already exists:', post.uuid);
+        console.debug('🟢 [Room] Post already exists:', postObj.uuid);
         return;
       }
     }
 
     const db = await this.postService.getDB(accountName);
-    await db.put('posts', JSON.stringify(post), post.uuid);
-    console.debug('🟢 [Room] Stored verified', isMeta ? 'meta' : 'post', 'from:', post.senderAccount);
+    await db.put('posts', JSON.stringify(postObj), postObj.uuid);
+    console.debug('🟢 [Room] Stored verified', isMeta ? 'meta' : 'post', 'from:', postObj.senderAccount);
     
     // Update follow lastId if this is a regular post (not meta)
     if (!isMeta) {
-      await this.postService.updateFollowLastId(accountName, post.senderAccount, post.uuid);
+      await this.postService.updateFollowLastId(accountName, postObj.senderAccount, postObj.uuid);
     }
     
     if (typeof window !== 'undefined') {
