@@ -1,5 +1,5 @@
 {
-  "updatedAt": 1795821454588,
+  "updatedAt": 1795823843892,
   "count": 5,
   "accounts": [
     {
@@ -35,7 +35,13 @@
           }
         ]
       },
-      "lastSeen": 1795821356626
+      "lastSeen": 1795823779019
+    },
+    {
+      "username": "piupiu",
+      "account": "piupiu",
+      "providerSuffix": "",
+      "lastSeen": 1795823746489
     },
     {
       "username": "michael_piupiu",
@@ -43,6 +49,14 @@
       "providerSuffix": "",
       "follow": {
         "uuid": "@follow",
+        "sender": "michael_piupiu",
+        "senderAccount": "michael_piupiu",
+        "timestamp": 1795822022962,
+        "content": "follow",
+        "publicKey": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE2VeoNJnSh9IMSFYVYKLeccf7WV5ovmrxBzKLEKWIkKSosdvKbrv8x0mAKUfqvi6Za7KUnQusvwZaniZBVt9yHA==",
+        "signature": "MEQCIGLyoPJhZKl4zIEdv8ebuxDuqa8QEFYDDcSXg5wFddgmAiBx/HC/Q3Z8tX9iyrHYS7pn4f7k0P9IL2TN9g7kA8tjqw==",
+        "authenticatorData": "1qEpROFiUmNXM6or/NY0Z5s4uqQGXy9Usrb0XJg5B7QdAAAAAA==",
+        "clientData": "eyJ0eXBlIjoid2ViYXV0aG4uZ2V0IiwiY2hhbGxlbmdlIjoiM2J0OWZTQU9nclQ2T3lzRmN4bXhVQnNzNnZ0NHVoSEs4VU8xLUZTRlZfYyIsIm9yaWdpbiI6Imh0dHBzOi8vcGl1LXBpdS50b3AiLCJjcm9zc09yaWdpbiI6ZmFsc2V9",
         "follows": [
           {
             "accountName": "piupiu",
@@ -59,19 +73,9 @@
             "profileUrl": "https://is.gd/michael_piupiu",
             "lastId": "01a21e54-375e-71be-81ed-713c6f91bd89"
           }
-        ],
-        "signature": "MEQCIGLyoPJhZKl4zIEdv8ebuxDuqa8QEFYDDcSXg5wFddgmAiBx/HC/Q3Z8tX9iyrHYS7pn4f7k0P9IL2TN9g7kA8tjqw==",
-        "authenticatorData": "1qEpROFiUmNXM6or/NY0Z5s4uqQGXy9Usrb0XJg5B7QdAAAAAA==",
-        "clientData": "eyJ0eXBlIjoid2ViYXV0aG4uZ2V0IiwiY2hhbGxlbmdlIjoiM2J0OWZTQU9nclQ2T3lzRmN4bXhVQnNzNnZ0NHVoSEs4VU8xLUZTRlZfYyIsIm9yaWdpbiI6Imh0dHBzOi8vcGl1LXBpdS50b3AiLCJjcm9zc09yaWdpbiI6ZmFsc2V9",
-        "publicKey": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE2VeoNJnSh9IMSFYVYKLeccf7WV5ovmrxBzKLEKWIkKSosdvKbrv8x0mAKUfqvi6Za7KUnQusvwZaniZBVt9yHA=="
+        ]
       },
-      "lastSeen": 1795821356618
-    },
-    {
-      "username": "piupiu",
-      "account": "piupiu",
-      "providerSuffix": "",
-      "lastSeen": 1795821356607
+      "lastSeen": 1795823745926
     },
     {
       "username": "michael79",
