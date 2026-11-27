@@ -88,7 +88,9 @@ export class Feed implements OnInit, OnDestroy {
         if (!isValid) {
           followedAccounts = [];
         } else {
-          followedAccounts = followData.follows.map(f => f.accountName);
+          followedAccounts = followData.follows
+            .map(f => f.accountName)
+            .filter(f => f !== viewerAccount);
         }
       }
     }

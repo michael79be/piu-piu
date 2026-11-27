@@ -222,14 +222,21 @@ export class RoomService implements OnDestroy {
           const me = this.authService.storedSigner();
           if (me && data.follow) {
             const isFollowingMe = data.follow.follows.some(f => f.accountName === me.account);
-            const existing = await this.postService.getFollowers(me.account);
-            const followers = { ...(existing?.followers ?? {}) };
-            if (isFollowingMe) {
-              followers[data.account] = data.follow;
-            } else {
-              delete followers[data.account];
+            await this.postService.updateFollowers(me.account, data.account, data.follow, isFollowingMe);
+            if (typeof window !== 'undefined') {
+              window.dispatchEvent(new CustomEvent('piu-piu:load-posts', { detail: { accountName: me.account } }));
             }
-            await this.postService.saveFollowers(me.account, followers);
+          }
+
+          // If viewing a profile and this peer follows that account, add them
+          // If they no longer follow that account, remove them
+          const currentAcct = this.currentAccount();
+          if (currentAcct && currentAcct !== me?.account && data.follow) {
+            const isFollowingCurrent = data.follow.follows.some(f => f.accountName === currentAcct);
+            await this.postService.updateFollowers(currentAcct, data.account, data.follow, isFollowingCurrent);
+            if (typeof window !== 'undefined') {
+              window.dispatchEvent(new CustomEvent('piu-piu:load-posts', { detail: { accountName: currentAcct } }));
+            }
           }
         });
 
@@ -474,22 +481,15 @@ export class RoomService implements OnDestroy {
     }
 
     // Build @followers index: when receiving a @follow post, if the signed-in user
-    // is in the follower's follows list, store that follower's data in the signed-in
-    // user's @followers meta post. Each entry carries the follower's own signature
-    // as proof, so followers cannot be faked.
+    // is in the follower's follows list, store that follower's data.
     if (postObj.uuid === '@follow' && (postObj as any).follows) {
       const me = this.authService.storedSigner();
       if (me) {
         const follows = (postObj as any).follows as Followed[];
         const isFollowingMe = follows.some(f => f.accountName === me.account);
-        const existing = await this.postService.getFollowers(me.account);
-        const followers = { ...(existing?.followers ?? {}) };
         if (isFollowingMe) {
-          followers[postObj.senderAccount] = postObj as unknown as FollowData;
-        } else {
-          delete followers[postObj.senderAccount];
+          await this.postService.updateFollowers(me.account, postObj.senderAccount, postObj as unknown as FollowData, true);
         }
-        await this.postService.saveFollowers(me.account, followers);
       }
     }
     

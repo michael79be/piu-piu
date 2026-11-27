@@ -35,7 +35,7 @@
     <button tuiButton appearance="flat" tuiDropdownAuto tuiDropdownRole="menu" type="button" [tuiDropdown]="content" class="w-full justify-start"
     tuiHintDirection="end" tuiHint="{{ accountDisplay() }}">
       @if (avatarUrl()) {
-        <img [src]="avatarUrl()" alt="@{{ displayName() }}" onerror="this.style.display='none'" class="w-8 h-8 rounded-full bg-gray-100 p-1" />
+        <img [src]="avatarUrl()" alt="@{{ displayName() }}" onerror="this.style.display='none'" class="avatar rounded-full bg-gray-100 p-1" />
       } @else {
         <la-icon [icon]="['lar', 'user']" size="2x" class="max-sm:ms-[-0.25em]"></la-icon>
       }
@@ -45,6 +45,9 @@
 
   <ng-template #content>
     <tui-data-list>
+      <span class="block px-2 py-2 text-sm font-bold text-gray-700">
+        {{ accountDisplay() }}
+      </span>
       @for (item of accountMenu(); track item) {
         <a
           tuiOption
