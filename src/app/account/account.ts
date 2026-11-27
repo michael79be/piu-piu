@@ -149,7 +149,7 @@ export class Account implements OnInit, OnDestroy {
     
     // Construct full account name with provider suffix
     let accountName = routeAccountName ?? profile?.accountName ?? profile?.username ?? null;
-    if (accountName && providerParam) {
+    if (accountName && providerParam && !accountName.endsWith(`/${providerParam}`)) {
       accountName = `${accountName}/${providerParam}`;
     }
     this.accountName.set(accountName);

@@ -3,7 +3,7 @@ import { TuiToastService } from '@taiga-ui/kit';
 import type { Room, PeerJoinContext, PeerLeaveContext } from '@trystero-p2p/core';
 import { SESSION_KEY } from '../auth/auth.enum';
 import { PostService } from '../post/post.service';
-import { MessageData, FollowData, FollowersData } from '../models/post-data';
+import { MessageData, FollowData, FollowersData, SettingsData } from '../models/post-data';
 import { CryptoService } from '../crypto/crypto.service';
 import { RsaPublicKeyService } from '../crypto/rsa-public-key.service';
 import { AuthService } from '../auth/auth.service';
@@ -11,6 +11,7 @@ import { createWhoamiAction, type WhoamiAction } from './whoami';
 import { createPostAction, type PostAction } from './post';
 import { createRequestAction, type RequestAction } from './request';
 import { createProvideAction, type ProvideAction } from './provide';
+import { createRecoverMetaAction, type RecoverMetaAction, RecoverMetaPayload, RecoverMetaResponse } from './recover';
 import { SignerInfo } from '../models/signer-info';
 import { WhoamiPayload } from '../models/whoami';
 import { ProfileService } from '../profile/profile.service';
@@ -53,6 +54,7 @@ export class RoomService implements OnDestroy {
   private globalWhoamiAction: WhoamiAction = createWhoamiAction();
   private globalRequestAction: RequestAction = createRequestAction();
   private globalProvideAction: ProvideAction = createProvideAction();
+  private globalRecoverMetaAction: RecoverMetaAction = createRecoverMetaAction();
   private postAction: PostAction = createPostAction();
 
   // Separate locks for account room and global room
@@ -258,6 +260,54 @@ export class RoomService implements OnDestroy {
           }
         });
 
+        // Recover meta action for global room
+        this.globalRecoverMetaAction = createRecoverMetaAction();
+        this.globalRecoverMetaAction.init(room.makeAction('recoverMeta'));
+        this.globalRecoverMetaAction.onMessage(async (data: RecoverMetaPayload | RecoverMetaResponse, context: { peerId: string; userId: string }) => {
+          // If it's a recovery request from another peer
+          if ('account' in data && !('settings' in data || 'followers' in data)) {
+            const requesterAccount = data.account;
+            const me = this.authService.storedSigner();
+            // Only respond if we have data for this account and we're signed in
+            if (me && me.account === requesterAccount) {
+              // We can't recover our own data from ourselves
+              return;
+            }
+            // Check if we have stored meta data for this account from previous whoami
+            const settings = await this.postService.getSettings(requesterAccount);
+            const followers = await this.postService.getFollowers(requesterAccount);
+            const follow = await this.postService.getFollow(requesterAccount);
+            if (settings || followers || follow) {
+              const response: RecoverMetaResponse = {
+                account: requesterAccount,
+                settings,
+                follow,
+                followers,
+              };
+              await this.globalRecoverMetaAction.send(response, { target: context.peerId });
+            }
+          } else {
+            // It's a recovery response
+            const response = data as RecoverMetaResponse;
+            const me = this.authService.storedSigner();
+            if (me && response.account === me.account) {
+              if (response.settings) {
+                await this.postService.saveSettings(me, response.settings.settings.avatarUrl, response.settings.settings.avatarService, response.settings.settings.pushEnabled);
+              }
+              if (response.followers) {
+                await this.postService.saveFollowers(me.account, response.followers.followers);
+              }
+              if (response.follow) {
+                const db = await this.postService.getDB(me.account);
+                await db.put('posts', JSON.stringify(response.follow), '@follow');
+              }
+              if (typeof window !== 'undefined') {
+                window.dispatchEvent(new CustomEvent('piu-piu:load-posts', { detail: { accountName: me.account } }));
+              }
+            }
+          }
+        });
+
         room.onPeerJoin(async (context: PeerJoinContext) => {
           const users = room.getUsers();
           const userInfo = users[context.userId];
@@ -350,24 +400,7 @@ export class RoomService implements OnDestroy {
     const meta = await this.postService.getMeta(accountName);
     const signer = this.authService?.storedSigner?.();
     
-    const metaPosts: MessageData[] = meta.filter(m => 'followers' in m ? false : true).map(m => {
-      const isSettings = 'avatarUrl' in m;
-      const post: MessageData = {
-        uuid: isSettings ? '@settings' : '@follow',
-        sender: signer?.username ?? 'unknown',
-        senderAccount: signer?.account ?? accountName,
-        timestamp: Date.now(),
-        content: isSettings ? 'settings' : 'follow',
-        publicKey: signer?.publicKey ?? '',
-        signature: m.signature ?? '',
-        authenticatorData: m.authenticatorData ?? '',
-        clientData: m.clientData ?? '',
-      };
-      if (!isSettings && 'follows' in m) {
-        (post as any).follows = (m as any).follows;
-      }
-      return post;
-    });
+    const metaPosts: MessageData[] = [];
 
     const allPosts = [...filteredPosts, ...metaPosts];
 
@@ -414,23 +447,7 @@ export class RoomService implements OnDestroy {
       postObj = post;
     }
 
-    const isMeta = postObj.uuid === '@settings' || postObj.uuid === '@follow';
-
-    if (isMeta && postObj.uuid === '@follow' && !('follows' in postObj)) {
-      return;
-    }
-
-    // Don't overwrite the signed-in user's own meta posts during sync unless local is missing/invalid
-    const signer = this.authService.storedSigner();
-    if (isMeta && signer?.account && accountName === signer.account && postObj.senderAccount === accountName) {
-      const existing = await this.postService.getPost(accountName, postObj.uuid);
-      if (existing) {
-        const valid = postObj.uuid === '@settings'
-          ? ('settings' in existing && typeof existing.settings === 'object')
-          : ('follows' in existing && Array.isArray((existing as any).follows) && (existing as any).follows.length > 0);
-        if (valid) return;
-      }
-    }
+    const isMeta = postObj.uuid === '@settings';
 
     if (!isMeta) {
       const publicKey = postObj.publicKey;
@@ -526,6 +543,12 @@ private stopPolling(): void {
         followers = f ?? undefined;
       }
 
+      // Get own settings data (from local DB)
+      let settings: SettingsData | undefined;
+      if (signer.account) {
+        settings = (await this.postService.getSettings(signer.account)) ?? undefined;
+      }
+
       const payload: WhoamiPayload = {
         username: signer.username,
         account: signer.account,
@@ -533,6 +556,7 @@ private stopPolling(): void {
         subscription,
         follow,
         followers,
+        settings,
       };
       this.globalWhoamiAction.send(payload, peerId ? { target: peerId } : undefined);
 
@@ -569,6 +593,8 @@ private stopPolling(): void {
       if (signer.account) {
         const followers = await this.postService.getFollowers(signer.account);
         if (followers) (payload as any).followers = followers;
+        const settings = await this.postService.getSettings(signer.account);
+        if (settings) (payload as any).settings = settings;
       }
       // Update sessionStorage only if setting a subscription (not clearing)
       if (subscription) {

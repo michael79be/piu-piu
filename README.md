@@ -57,11 +57,31 @@ Everything is client-side; there is no server except the optional local shortene
 ### Room service (`src/app/room/room.service.ts`)
 - `RoomService` - manages trystero P2P room for data sync
 - `joinRoom(accountName)` - joins room named after account
-- Actions: `whoami` (global room), `post`, `request`, `provide`
+- Actions: `whoami` (global room), `post`, `request`, `provide`, `recoverMeta`
 - Global room `"piu-piu"` for all users (whoami only)
-- Meta posts (`@settings`, `@follow`) broadcast on join and every 60s
+- Meta posts (`@settings`) NOT synced via P2P provide - only distributed via whoami broadcasts
 - Profile visits broadcast request for account posts in global room
 - Feed visits broadcast incremental request for each followed account
+
+### Followers system
+Followers are tracked via WhoAmI broadcasts and stored locally per-user:
+- `WhoAmI.followers` - each user's whoami payload includes their full `@followers` index
+- `WhoAmI.follow` - each user's whoami payload includes who they follow (signed `FollowData`)
+- On receiving whoami: if sender follows signed-in user → adds sender to signed-in user's `@followers`; stores sender's `@followers` under sender's account name
+- Followers counter displayed on account page as `Followers: X`
+
+**Followers data flow:**
+1. User A follows B → `saveFollow()` signs `@follow` → stores in A's DB → broadcasts whoami (with A's follow list + A's followers)
+2. B receives A's whoami → sees A follows B → adds A to B's `@followers` in B's DB
+3. C views B's profile → receives B's whoami → gets B's `@followers` from whoami payload → displays count
+
+No `@followers` meta posts are synced via P2P provide action — only via WhoAmI broadcasts.
+
+### Meta post recovery (`src/app/room/recover.ts`)
+- `RecoverMetaAction` - new global room action for recovering lost meta posts
+- `RecoverMetaPayload` - request: `{ account: string }` - asks peers for stored meta data
+- `RecoverMetaResponse` - response: `{ account, settings?, followers?, follow? }` - provides stored meta data
+- Used when signed-in user's local `@settings`, `@followers`, or `@follow` is missing/corrupted - broadcasts request in global room, peers who received previous whoamis can respond with their cached copy
 
 ### Crypto service (`src/app/crypto/crypto.service.ts`)
 - Centralized cryptographic operations
@@ -75,6 +95,7 @@ Everything is client-side; there is no server except the optional local shortene
 - `createPost(content)` - creates post with uuid, sender, timestamp, content, WebAuthn signature
 - `getPost(uuid)`, `getAllPosts()`, `deletePost(uuid)`, `verifyPost(post)`
 - `saveSettings()`, `getSettings()`, `saveFollow()`, `getFollow()`, `verifyFollow()`
+- `saveFollowers(accountName, followers)`, `getFollowers(accountName)`, `updateFollowers(accountName, followerAccount, followData, add)` - manages `@followers` meta post
 - **`saveSubscription(accountName, subscription)` / `getSubscription(accountName)`** - manages push subscriptions in `@subscription` key
 
 ### Post dialog (`src/app/post/post-dialog/`)

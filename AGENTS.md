@@ -80,11 +80,36 @@ Local provider (`provider.mjs` / `provider/`) runs on `:3000` and persists to `p
 - `broadcastPost(post)` - sends post to all peers in account room
 - Dispatches `piu-piu:load-posts` custom event after storing incoming posts
 - `joinGlobalRoom()` / `leaveGlobalRoom()` - manages global room connection
-- `announceGlobalIfSignedIn()` - broadcasts whoami with encrypted subscription field; also broadcasts requestPosts for followed accounts when new peer joins
+- `announceGlobalIfSignedIn()` - broadcasts whoami with encrypted subscription field; also broadcasts requestPosts for followed accounts when new peer joins; includes own `@settings` and `@followers` index in whoami payload
 - `updateWhoamiSubscription()` - updates whoami with new push subscription, updates sessionStorage
-- Meta posts (`@settings`, `@follow`) broadcast on room join and every 60s
+- Meta posts (`@settings`) NOT synced via P2P provide - only distributed via whoami broadcasts
 - Polling: newer posts every 10s (`after` latest uuid), older posts every 30s (`before` oldest uuid), meta posts every 60s
 - Logs join/leave/whoami/post events to console
+
+### Meta post recovery (`src/app/room/recover.ts`)
+
+- **`RecoverMetaAction`** - new global room action for recovering lost meta posts
+- **`RecoverMetaPayload`** - request: `{ account: string }` - asks peers for stored meta data
+- **`RecoverMetaResponse`** - response: `{ account, settings?, followers?, follow? }` - provides stored meta data
+- Used when signed-in user's local `@settings`, `@followers`, or `@follow` is missing/corrupted - broadcasts request in global room, peers who received previous whoamis can respond with their cached copy
+
+### Followers system
+
+Followers are tracked via WhoAmI broadcasts and stored locally per-user:
+
+- **`WhoAmI.followers`** - each user's whoami payload includes their full `@followers` index (Record<string, FollowData>) from local DB
+- **`RoomService.handleWhoami()`** - on receiving whoami: (1) if sender follows signed-in user → adds sender to signed-in user's `@followers`; (2) stores sender's `@followers` under sender's account name for viewing their profile later
+- **`PostService.getFollowers(accountName)`** / **`saveFollowers(accountName, followers)`** - reads/writes `@followers` meta post in target account's IndexedDB
+- **`PostService.updateFollowers(accountName, followerAccount, followData, add)`** - serializes writes via promise queue to prevent race conditions; adds or removes a single follower entry
+- **`Account.loadFollowers()`** - reads `@followers` count from IndexedDB, called on route load and on `piu-piu:load-posts` events
+- **Followers counter** displayed on account page as `Followers: X`
+
+**Followers data flow:**
+1. User A follows B → `saveFollow()` signs `@follow` → stores in A's DB → broadcasts whoami (with A's follow list + A's followers)
+2. B receives A's whoami → sees A follows B → adds A to B's `@followers` in B's DB
+3. C views B's profile → receives B's whoami → gets B's `@followers` from whoami payload → displays count
+
+No `@followers` meta posts are synced via P2P provide action — only via WhoAmI broadcasts.
 
 ### Post service (`src/app/post/post.service.ts`)
 
@@ -96,6 +121,7 @@ Local provider (`provider.mjs` / `provider/`) runs on `:3000` and persists to `p
 - `deletePost(uuid)` - deletes post by uuid
 - `verifyPost(post)` - verifies post signature using Web Crypto API with post's publicKey
 - `saveSettings(settings)`, `getSettings()`, `saveFollow(follow)`, `getFollow()`, `verifyFollow()`, `isFollowing()`
+- `saveFollowers(accountName, followers)`, `getFollowers(accountName)`, `updateFollowers(accountName, followerAccount, followData, add)` - manages `@followers` meta post
 - `saveSubscription(accountName, subscription)` / `getSubscription(accountName)` - manages push subscriptions in `@subscription` key
 
 **Post data structure:**
@@ -108,6 +134,10 @@ Local provider (`provider.mjs` / `provider/`) runs on `:3000` and persists to `p
 - `signature` - base64 encoded WebAuthn ECDSA P-256 signature
 - `authenticatorData` - base64 encoded authenticator data
 - `clientData` - base64 encoded client data JSON
+
+**Meta post types:**
+- `@settings` - account settings (avatar, push notifications)
+- `@followers` - follower index (who follows this account)
 
 **Signature flow:**
 - Signing: `createPost()` computes challenge as SHA-256 of `${uuid}:${senderAccount}:${timestamp}:${content}`, calls `navigator.credentials.get()` (WebAuthn)
@@ -200,12 +230,14 @@ All routes use lazy-loaded components (`loadComponent`).
 - Push notifications: subscribe/unsubscribe via service worker, hybrid RSA encryption, updates whoami
 - **Push subscription persists across reloads** - auto-restored on page load via `pushManager.getSubscription()` and IndexedDB `@subscription`
 - Follow/unfollow button with loading state, hidden on mobile; on mobile shows as icon-only on new line below header
+- Followers counter (Followers: X) displayed under profile name/handle; built from WhoAmI broadcasts stored locally
 
 **Profile loading flow:**
 - `ProfileResolver` loads profile data from route params (`accountName` + optional `provider`)
 - Always uses provider service to lookup short URL and decode profile from `/profile/:encoded` path
 - Profile data is stored in `ProfileService` for component access
 - On room join, broadcasts `requestPosts(accountName, { after: latestLocalPostUuid })` in global room for incremental sync
+- Loads `@followers` count via `PostService.getFollowers(accountName)` for followers counter
 
 **Post flow:**
 - Post button opens `PostDialogComponent` via `TuiDialogService`
