@@ -60,6 +60,7 @@ export class Account implements OnInit, OnDestroy {
   pushSubscription = signal<PushSubscription | null>(null);
   pushSupported = signal(false);
   pushLoading = signal(false);
+  signingIn = signal(false);
 
   avatarUrl = signal<string | null>(null);
 
@@ -154,8 +155,9 @@ export class Account implements OnInit, OnDestroy {
     this.loadAvatar();
 
     const signInParam = this.route.snapshot.queryParamMap.get('signIn');
-    if (signInParam === 'true') {
+    if (signInParam === 'true' && !this.signingIn()) {
       this.showAccountMenu.set(true);
+      this.signingIn.set(true);
       this.performSignIn();
     }
   }
@@ -209,15 +211,25 @@ export class Account implements OnInit, OnDestroy {
       this.errorService.showError('No account name set');
       return;
     }
-    const success = await this.authService.signIn(accountName);
-    if (success) {
-      this.roomService.joinGlobalRoom().catch(err => console.error('Failed to join global room:', err));
+    this.signingIn.set(true);
+    try {
+      const success = await this.authService.signIn(accountName);
+      if (success) {
+        this.roomService.joinGlobalRoom().catch(err => console.error('Failed to join global room:', err));
+      }
+    } finally {
+      this.signingIn.set(false);
+      this.router.navigate([], { queryParams: { signIn: null }, queryParamsHandling: 'merge', replaceUrl: true });
     }
-    this.router.navigate([], { queryParams: { signIn: null }, queryParamsHandling: 'merge', replaceUrl: true });
   }
 
   async signIn(): Promise<void> {
-    this.router.navigate(['/'], { queryParams: { signIn: true }, queryParamsHandling: 'merge' });
+    const accountName = this.accountName();
+    if (accountName) {
+      this.router.navigate(['/@', accountName], { queryParams: { signIn: true } });
+    } else {
+      this.router.navigate(['/'], { queryParams: { signIn: true } });
+    }
   }
 
   async loadPosts(): Promise<void> {

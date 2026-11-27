@@ -1,18 +1,18 @@
 <div class="max-w-2xl mx-auto">
   <div class="sticky top-0 z-10 bg-white border-b border-gray-200 px-6 py-4">
-    <div class="flex items-center justify-between gap-3">
-      <button tuiButton appearance="flat" size="m" class="p-2" (click)="onHome()"
+    <div class="flex items-center justify-between gap-3 flex-wrap">
+      <button tuiButton appearance="flat" size="m" class="p-2 max-sm:p-1" (click)="onHome()"
       tuiHintDirection="end" tuiHint="Feed">
-        <la-icon [icon]="['las', 'arrow-left']" class="text-gray-600"></la-icon>
+        <la-icon [icon]="['las', 'arrow-left']" class="text-gray-600 max-sm:w-4 max-sm:h-4"></la-icon>
       </button>
       <div class="flex-1">
         @if (profileData(); as profile) {
-          <div class="flex items-start gap-4">
+          <div class="flex items-start gap-4 max-sm:flex-col max-sm:items-start">
             @if (avatarUrl()) {
-              <img [src]="avatarUrl()" alt="@{{ profile.username }}" class="w-16 h-16 rounded-full bg-gray-100 flex-shrink-0" onerror="this.style.display='none'" />
+              <img [src]="avatarUrl()" alt="@{{ profile.username }}" class="w-16 h-16 rounded-full bg-gray-100 flex-shrink-0 max-sm:w-12 max-sm:h-12" onerror="this.style.display='none'" />
             }
             <div class="min-w-0">
-              <h1 class="text-2xl font-bold text-gray-900 truncate">@{{ profile.username }}</h1>
+              <h1 class="text-2xl font-bold text-gray-900 truncate max-sm:text-lg">@{{ profile.username }}</h1>
               <p class="text-sm text-gray-500 truncate">@{{ accountName() }}</p>
             </div>
           </div>
@@ -21,15 +21,15 @@
       @if (isSignedIn() && !signerMatchesAccount() && profileData()) {
         <button tuiButton [appearance]="isFollowing() ? 'secondary' : 'primary'" size="m" 
                 (click)="toggleFollow()" [disabled]="followLoading()"
-                class="max-sm:hidden">
+                class="max-sm:ml-auto max-sm:mt-2">
           @if (followLoading()) {
             <la-icon [icon]="['las', 'spinner']" class="animate-spin"></la-icon>
           } @else if (isFollowing()) {
             <la-icon [icon]="['las', 'check']"></la-icon>
-            <span class="ms-1">Following</span>
+            <span class="max-sm:hidden ms-1">Following</span>
           } @else {
             <la-icon [icon]="['las', 'user-plus']"></la-icon>
-            <span class="ms-1">Follow</span>
+            <span class="max-sm:hidden ms-1">Follow</span>
           }
         </button>
       }
