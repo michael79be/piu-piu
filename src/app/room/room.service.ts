@@ -86,7 +86,10 @@ export class RoomService implements OnDestroy {
     
     // Check again after lock
     if (this.roomInstance() && this.currentAccount() === accountName) {
-      console.debug('🟢 [Room] Already in room:', accountName);
+      // Re-request posts on reload/re-entry since peers may not have been connected before
+      const localPosts = await this.postService.getAllPostsWithFullData(accountName);
+      const latestUuid = localPosts.length > 0 ? localPosts[0].uuid : undefined;
+      await this.requestPosts(accountName, { after: latestUuid });
       return;
     }
 
@@ -108,11 +111,11 @@ export class RoomService implements OnDestroy {
 
         const selfInfo = await room.getSelf();
         this.selfId.set(selfInfo.userId);
-        console.info('🔵 [Room] Joined room:', accountName, 'selfId:', selfInfo.userId);
+        console.info('⬇️ [Room] Joined room:', accountName, 'selfId:', selfInfo.userId);
 
         this.postAction.init(room.makeAction('post'));
         this.postAction.onMessage(async (data: MessageData, context: { peerId: string; userId: string }) => {
-          console.debug('🟢 [Room] Post received from:', context.peerId, 'post:', data.uuid);
+          console.debug('⬇️ [Room] Post received from:', context.peerId, 'post:', data.uuid);
           await this.zone.run(() => this.handleIncomingPost(data));
         });
 
@@ -128,13 +131,13 @@ export class RoomService implements OnDestroy {
             if (current.find(p => p.id === peer.id)) return current;
             return [...current, peer];
           });
-          console.debug('🟢 [Room] Peer joined:', context.peerId, 'userId:', context.userId);
+          console.debug('⬇️ [Room] Peer joined:', context.peerId, 'userId:', context.userId);
           const meta = await this.postService.getMeta(accountName);
         });
 
         room.onPeerLeave((context: PeerLeaveContext) => {
           this.peers.update(current => current.filter(p => p.id !== context.peerId));
-          console.debug('🟢 [Room] Peer left:', context.peerId, 'userId:', context.userId);
+          console.debug('⬆️ [Room] Peer left:', context.peerId, 'userId:', context.userId);
         });
 
         await room.ready;
@@ -189,11 +192,11 @@ export class RoomService implements OnDestroy {
         this.globalPeers.set([]);
 
         const selfInfo = await room.getSelf();
-        console.info('🔵 [Room] Joined global room:', GLOBAL_ROOM_NAME, 'selfId:', selfInfo.userId);
+        console.info('⬇️ [Room] Joined global room:', GLOBAL_ROOM_NAME, 'selfId:', selfInfo.userId);
 
         this.globalWhoamiAction.init(room.makeAction('whoami'));
         this.globalWhoamiAction.onMessage((data: WhoamiPayload, context: { peerId: string; userId: string }) => {
-          console.debug('🟢 [Room] Global whoami received from:', context.peerId, 'account:', data.account);
+          console.debug('⬇️ [Room] Global whoami received from:', context.peerId, 'account:', data.account);
           const peer = this.globalPeers().find(p => p.id === context.peerId);
           if (peer) {
             this.globalPeers.update(current =>
@@ -219,15 +222,22 @@ export class RoomService implements OnDestroy {
         this.globalRequestAction = createRequestAction();
         this.globalRequestAction.init(room.makeAction('request'));
         this.globalRequestAction.onMessage(async (data: RequestPayload, context: { peerId: string; userId: string }) => {
-          console.info('🔵 [Room] Global request received from:', context.peerId, 'account:', data.accountName);
+          console.info('⬇️ [Room] Global request received from:', context.peerId, 'account:', data.accountName);
           await this.zone.run(() => this.handleRequest(data, context.peerId));
         });
 
         // Provide action for global room
         this.globalProvideAction = createProvideAction();
         this.globalProvideAction.init(room.makeAction('provide'));
+        this.globalProvideAction.onMessage(async (data: ProvidePayload, context: { peerId: string; userId: string }) => {
+          console.debug('⬇️ [Room] Global provide received from:', context.peerId, 'account:', data.accountName, 'posts:', data.posts.length);
+          const targetAccount = data.accountName;
+          for (const post of data.posts) {
+            await this.zone.run(() => this.handleIncomingPost(post, targetAccount));
+          }
+        });
 
-        room.onPeerJoin((context: PeerJoinContext) => {
+        room.onPeerJoin(async (context: PeerJoinContext) => {
           const users = room.getUsers();
           const userInfo = users[context.userId];
           const peer: Peer = {
@@ -239,13 +249,21 @@ export class RoomService implements OnDestroy {
             if (current.find(p => p.id === peer.id)) return current;
             return [...current, peer];
           });
-          console.debug('🟢 [Room] Global peer joined:', context.peerId, 'userId:', context.userId);
+          console.debug('⬇️ [Room] Global peer joined:', context.peerId, 'userId:', context.userId);
           this.announceGlobalIfSignedIn(context.peerId);
+
+          // If viewing an account page, request its posts from the new peer
+          const currentAcct = this.currentAccount();
+          if (currentAcct) {
+            const localPosts = await this.postService.getAllPostsWithFullData(currentAcct);
+            const latestUuid = localPosts.length > 0 ? localPosts[0].uuid : undefined;
+            await this.requestPosts(currentAcct, { after: latestUuid });
+          }
         });
 
         room.onPeerLeave((context: PeerLeaveContext) => {
           this.globalPeers.update(current => current.filter(p => p.id !== context.peerId));
-          console.debug('🟢 [Room] Global peer left:', context.peerId, 'userId:', context.userId);
+          console.debug('⬆️ [Room] Global peer left:', context.peerId, 'userId:', context.userId);
         });
 
         await room.ready;
@@ -288,7 +306,7 @@ export class RoomService implements OnDestroy {
 
     // Filter regular posts by uuid range, but always include meta posts (@settings, @follow)
     const posts = await this.postService.getAllPostsWithFullData(accountName, false);
-    console.info('🔵 [Room] Global request check for:', accountName, 'found posts:', posts.length);
+    console.info('⬇️ [Room] Global request check for:', accountName, 'found posts:', posts.length);
 
     let filteredPosts = posts;
     if (data.before) {
@@ -311,22 +329,29 @@ export class RoomService implements OnDestroy {
     const meta = await this.postService.getMeta(accountName);
     const signer = this.authService?.storedSigner?.();
     
-    const metaPosts: MessageData[] = meta.map(m => ({
-      uuid: 'avatarUrl' in m ? '@settings' : '@follow',
-      sender: signer?.username ?? 'unknown',
-      senderAccount: signer?.account ?? accountName,
-      timestamp: Date.now(),
-      content: 'avatarUrl' in m ? 'settings' : 'follow',
-      publicKey: signer?.publicKey ?? '',
-      signature: m.signature ?? '',
-      authenticatorData: m.authenticatorData ?? '',
-      clientData: m.clientData ?? '',
-    }));
+    const metaPosts: MessageData[] = meta.map(m => {
+      const isSettings = 'avatarUrl' in m;
+      const post: MessageData = {
+        uuid: isSettings ? '@settings' : '@follow',
+        sender: signer?.username ?? 'unknown',
+        senderAccount: signer?.account ?? accountName,
+        timestamp: Date.now(),
+        content: isSettings ? 'settings' : 'follow',
+        publicKey: signer?.publicKey ?? '',
+        signature: m.signature ?? '',
+        authenticatorData: m.authenticatorData ?? '',
+        clientData: m.clientData ?? '',
+      };
+      if (!isSettings && 'follows' in m) {
+        (post as any).follows = (m as any).follows;
+      }
+      return post;
+    });
 
     const allPosts = [...filteredPosts, ...metaPosts];
 
     if (allPosts.length === 0) {
-      console.debug('🟢 [Room] No posts to provide for:', accountName);
+      console.debug('⬆️ [Room] No posts to provide for @', accountName);
       return;
     }
 
@@ -336,7 +361,7 @@ export class RoomService implements OnDestroy {
     };
 
     await this.globalProvideAction.send(payload, { target: peerId });
-    console.debug('🟢 [Room] Provided', allPosts.length, 'posts to:', peerId);
+    console.debug('⬆️ [Room] Provided', allPosts.length, 'posts of @', accountName, 'to:', peerId);
   }
 
   async requestPosts(accountName: string, options?: { before?: string; after?: string }): Promise<void> {
@@ -348,11 +373,11 @@ export class RoomService implements OnDestroy {
       after: options?.after,
     };
     this.globalRequestAction.send(payload);
-    console.debug('🟢 [Room] Broadcasted request for @', accountName, 'in global room', 'after:', options?.after);
+    console.debug('⬆️ [Room] Broadcasted request for @', accountName, 'in global room', 'after:', options?.after);
   }
 
-  private async handleIncomingPost(post: MessageData | string): Promise<void> {
-    const accountName = this.currentAccount();
+  private async handleIncomingPost(post: MessageData | string, targetAccount?: string): Promise<void> {
+    const accountName = targetAccount ?? this.currentAccount();
     if (!accountName) return;
 
     // Ensure post is an object (handle potential double-encoded strings)
@@ -370,6 +395,22 @@ export class RoomService implements OnDestroy {
 
     const isMeta = postObj.uuid === '@settings' || postObj.uuid === '@follow';
 
+    if (isMeta && postObj.uuid === '@follow' && !('follows' in postObj)) {
+      return;
+    }
+
+    // Don't overwrite the signed-in user's own meta posts during sync unless local is missing/invalid
+    const signer = this.authService.storedSigner();
+    if (isMeta && signer?.account && accountName === signer.account) {
+      const existing = await this.postService.getPost(accountName, postObj.uuid);
+      if (existing) {
+        const valid = postObj.uuid === '@settings'
+          ? ('settings' in existing && typeof existing.settings === 'object')
+          : ('follows' in existing && Array.isArray((existing as any).follows) && (existing as any).follows.length > 0);
+        if (valid) return;
+      }
+    }
+
     if (!isMeta) {
       const publicKey = postObj.publicKey;
       if (!publicKey || publicKey.length === 0) {
@@ -385,18 +426,20 @@ export class RoomService implements OnDestroy {
 
       const existing = await this.postService.getPost(accountName, postObj.uuid);
       if (existing) {
-        console.debug('🟢 [Room] Post already exists:', postObj.uuid);
         return;
       }
     }
 
     const db = await this.postService.getDB(accountName);
     await db.put('posts', JSON.stringify(postObj), postObj.uuid);
-    console.debug('🟢 [Room] Stored verified', isMeta ? 'meta' : 'post', 'from:', postObj.senderAccount);
-    
+    console.debug('⬇️ [Room] Stored verified', isMeta ? 'meta' : 'post', 'from:', postObj.senderAccount, 'for @', accountName);
     // Update follow lastId if this is a regular post (not meta)
     if (!isMeta) {
-      await this.postService.updateFollowLastId(accountName, postObj.senderAccount, postObj.uuid);
+      try {
+        await this.postService.updateFollowLastId(accountName, postObj.senderAccount, postObj.uuid);
+      } catch {
+        // Ignore - follow lastId update must not block post reload
+      }
     }
     
     if (typeof window !== 'undefined') {
@@ -406,10 +449,6 @@ export class RoomService implements OnDestroy {
 
   private async startPolling(accountName: string): Promise<void> {
     this.stopPolling();
-
-    const posts = await this.postService.getAllPostsWithFullData(accountName);
-    const latestUuid = posts.length > 0 ? posts[0].uuid : undefined;
-    const oldestUuid = posts.length > 0 ? posts[posts.length - 1].uuid : undefined;
 
     // Poll for @ posts (settings, follow) every 60 seconds and broadcast them
     const metaInterval = setInterval(async () => {
@@ -430,7 +469,7 @@ private stopPolling(): void {
 
   async broadcastPost(post: MessageData): Promise<void> {
     this.postAction.send(post);
-    console.debug('🟢 [Room] Broadcasted post:', post.uuid);
+    console.debug('⬆️ [Room] Broadcasted post:', post.uuid);
   }
 
   private async announceGlobalIfSignedIn(peerId?: string): Promise<void> {
@@ -462,6 +501,15 @@ private stopPolling(): void {
         follow,
       };
       this.globalWhoamiAction.send(payload, peerId ? { target: peerId } : undefined);
+
+      // Broadcast request for followed accounts so new peer can sync with us
+      if (follow?.follows && follow.follows.length > 0) {
+        for (const f of follow.follows) {
+          const localPosts = await this.postService.getAllPostsWithFullData(f.accountName);
+          const latestUuid = localPosts.length > 0 ? localPosts[0].uuid : undefined;
+          await this.requestPosts(f.accountName, { after: latestUuid });
+        }
+      }
     } catch {
       // Not signed in, don't announce
     }

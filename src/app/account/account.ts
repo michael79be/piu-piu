@@ -48,14 +48,8 @@ export class Account implements OnInit, OnDestroy {
   accountName = signal<string | null>(null);
   showAccountMenu = signal(false);
 
-  peers = this.roomService.peers;
-  isConnected = this.roomService.isConnected;
-  peerCount = this.roomService.peerCount;
-  selfId = this.roomService.selfId;
-
   isSignedIn = this.authService.isSignedIn;
   storedSigner = this.authService.storedSigner;
-  displayName = this.authService.displayName;
 
   pushSubscription = signal<PushSubscription | null>(null);
   pushSupported = signal(false);
@@ -66,6 +60,7 @@ export class Account implements OnInit, OnDestroy {
 
   private handlePostsUpdated = (event: CustomEvent) => {
     const detail = event.detail;
+    console.debug('🟢 [Account] piu-piu:load-posts received:', detail?.accountName, 'current:', this.accountName());
     if (!detail?.accountName || detail.accountName === this.accountName()) {
       this.loadPosts();
     }
@@ -101,8 +96,14 @@ export class Account implements OnInit, OnDestroy {
     }
   }
 
-  ngOnInit(): void {
-    this.loadAccountFromRoute();
+  async ngOnInit(): Promise<void> {
+    // Join global room first so requestPosts broadcasts from joinRoom can be heard by peers
+    await this.roomService.joinGlobalRoom().catch(err => console.error('Failed to join global room:', err));
+
+    // Listen for P2P post events BEFORE any requests are sent
+    window.addEventListener('piu-piu:load-posts', this.handlePostsUpdated as EventListener);
+
+    await this.loadAccountFromRoute();
 
     // Subscribe to route param changes for navigation between account pages
     this.route.paramMap.pipe(
@@ -111,14 +112,6 @@ export class Account implements OnInit, OnDestroy {
       this.loadAccountFromRoute();
     });
 
-    // Join global room if already signed in (session restore)
-    if (this.authService.isSignedIn()) {
-      this.roomService.joinGlobalRoom().catch(err => console.error('Failed to join global room:', err));
-    }
-
-    // Listen for P2P post events
-    window.addEventListener('piu-piu:load-posts', this.handlePostsUpdated as EventListener);
-
     // Check push notification support
     this.pushSupported.set('serviceWorker' in navigator && 'PushManager' in window);
     if (this.pushSupported()) {
@@ -126,7 +119,7 @@ export class Account implements OnInit, OnDestroy {
     }
   }
 
-  private loadAccountFromRoute(): void {
+  private async loadAccountFromRoute(): Promise<void> {
     const routeAccountName = this.route.snapshot.paramMap.get('accountName');
     const providerParam = this.route.snapshot.paramMap.get('provider');
     
@@ -147,7 +140,7 @@ export class Account implements OnInit, OnDestroy {
     this.updateTitle(accountName);
 
     if (this.accountName()) {
-      this.roomService.joinRoom(this.accountName()!).catch(err => console.error('Failed to join room:', err));
+      await this.roomService.joinRoom(this.accountName()!).catch(err => console.error('Failed to join room:', err));
     }
 
     this.loadPosts();
@@ -169,7 +162,6 @@ export class Account implements OnInit, OnDestroy {
   }
 
   posts = signal<MessageData[]>([]);
-  gravatarCache = new Map<string, string>();
 
   signerMatchesAccount = computed(() => {
     const signer = this.storedSigner();
@@ -241,17 +233,6 @@ export class Account implements OnInit, OnDestroy {
     }
     const verifiedPosts = await this.postService.getVerifiedPosts(accountName);
     this.posts.set(verifiedPosts);
-
-    // Preload gravatar URLs for all unique sender accounts
-    const uniqueAccounts = [...new Set(verifiedPosts.map(p => (p as MessageData).senderAccount))];
-    for (const account of uniqueAccounts) {
-      const settings = await this.postService.getSettings(account);
-      if (settings?.settings.avatarUrl) {
-        this.gravatarCache.set(account, settings.settings.avatarUrl);
-      } else {
-        this.gravatarCache.set(account, '');
-      }
-    }
   }
 
   private async loadFollowStatus(): Promise<void> {
@@ -525,10 +506,6 @@ export class Account implements OnInit, OnDestroy {
     if (hours < 24) return `${hours}h`;
     if (days < 7) return `${days}d`;
     return date.toLocaleDateString();
-  }
-
-  getGravatarUrl(senderAccount: string): string {
-    return this.gravatarCache.get(senderAccount) ?? '';
   }
 
   getMessageData(post: MessageData): MessageData {

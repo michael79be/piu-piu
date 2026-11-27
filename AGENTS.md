@@ -80,10 +80,10 @@ Local provider (`provider.mjs` / `provider/`) runs on `:3000` and persists to `p
 - `broadcastPost(post)` - sends post to all peers in account room
 - Dispatches `piu-piu:load-posts` custom event after storing incoming posts
 - `joinGlobalRoom()` / `leaveGlobalRoom()` - manages global room connection
-- `announceGlobalIfSignedIn()` - broadcasts whoami with encrypted subscription field
+- `announceGlobalIfSignedIn()` - broadcasts whoami with encrypted subscription field; also broadcasts requestPosts for followed accounts when new peer joins
 - `updateWhoamiSubscription()` - updates whoami with new push subscription, updates sessionStorage
 - Meta posts (`@settings`, `@follow`) broadcast on room join and every 60s
-- Polling: meta posts every 60s (no per-post newer/older polling)
+- Polling: newer posts every 10s (`after` latest uuid), older posts every 30s (`before` oldest uuid), meta posts every 60s
 - Logs join/leave/whoami/post events to console
 
 ### Post service (`src/app/post/post.service.ts`)

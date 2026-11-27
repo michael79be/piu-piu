@@ -33,10 +33,9 @@ export class Feed implements OnInit, OnDestroy {
 
   private handlePostsUpdated = (event: CustomEvent) => {
     const detail = event.detail;
-    if (!detail?.accountName) {
-      this.loadFeed();
-    } else if (this.followedAccounts().includes(detail.accountName)) {
-      this.loadFeed();
+    console.debug('🟢 [Feed] piu-piu:load-posts received:', detail?.accountName, 'followed:', this.followedAccounts());
+    if (!detail?.accountName || this.followedAccounts().includes(detail.accountName)) {
+      this.loadLocalPosts();
     }
   };
 
@@ -69,52 +68,48 @@ export class Feed implements OnInit, OnDestroy {
   canPost = computed(() => this.authService.isSignedIn() && this.authService.storedSigner()?.account);
 
   async loadFeed(): Promise<void> {
+    await this.loadLocalPosts();
+    this.requestRemotePosts();
+  }
+
+  private async loadLocalPosts(): Promise<void> {
     const viewerAccount = this.authService.storedSigner()?.account;
     const viewerPublicKey = this.authService.storedSigner()?.publicKey;
+
+    let followedAccounts: string[];
     if (!viewerAccount || !viewerPublicKey) {
+      followedAccounts = ['piupiu'];
+    } else {
+      const followData = await this.postService.getFollow(viewerAccount);
+      if (!followData) {
+        followedAccounts = ['piupiu'];
+      } else {
+        const isValid = await this.postService.verifyFollow(followData, viewerPublicKey);
+        if (!isValid) {
+          followedAccounts = ['piupiu'];
+        } else {
+          followedAccounts = followData.follows.map(f => f.accountName);
+        }
+      }
+    }
+
+    this.followedAccounts.set(followedAccounts);
+    if (followedAccounts.length === 0) {
       this.posts.set([]);
       return;
     }
 
     this.loading.set(true);
     try {
-      // Get follow data
-      const followData = await this.postService.getFollow(viewerAccount);
-      if (!followData) {
-        this.posts.set([]);
-        return;
-      }
-
-      const isValid = await this.postService.verifyFollow(followData, viewerPublicKey);
-      if (!isValid) {
-        this.posts.set([]);
-        return;
-      }
-
-      const followedAccounts = followData.follows.map(f => f.accountName);
-      this.followedAccounts.set(followedAccounts);
-      if (followedAccounts.length === 0) {
-        this.posts.set([]);
-        return;
-      }
-
-      // Broadcast request for every followed account in global room
-      for (const targetFollow of followData.follows) {
-        await this.roomService.requestPosts(targetFollow.accountName, { after: targetFollow.lastId });
-      }
-
-      // Collect posts from all followed accounts
       const allPosts: MessageData[] = [];
       for (const targetAccount of followedAccounts) {
         const verifiedPosts = await this.postService.getVerifiedPosts(targetAccount);
         allPosts.push(...verifiedPosts);
       }
 
-      // Sort by timestamp descending (newest first)
       allPosts.sort((a, b) => b.timestamp - a.timestamp);
       this.posts.set(allPosts);
 
-      // Preload gravatar URLs for all unique sender accounts
       const uniqueAccounts = [...new Set(allPosts.map(p => p.senderAccount))];
       const newCache = new Map(this.gravatarCache());
       for (const account of uniqueAccounts) {
@@ -131,6 +126,22 @@ export class Feed implements OnInit, OnDestroy {
       this.posts.set([]);
     } finally {
       this.loading.set(false);
+    }
+  }
+
+  private requestRemotePosts(): void {
+    const viewerAccount = this.authService.storedSigner()?.account;
+    const viewerPublicKey = this.authService.storedSigner()?.publicKey;
+
+    let followedAccounts: string[];
+    if (!viewerAccount || !viewerPublicKey) {
+      followedAccounts = ['piupiu'];
+    } else {
+      followedAccounts = this.followedAccounts();
+    }
+
+    for (const targetFollow of followedAccounts) {
+      this.roomService.requestPosts(targetFollow, { after: undefined });
     }
   }
 
