@@ -172,7 +172,12 @@ isSignedIn = this.authService.isSignedIn;
   }
 
   async signIn(): Promise<void> {
-    this.router.navigate(['/'], { queryParams: { signIn: true }, queryParamsHandling: 'merge' });
+    const accountName = this.storedSigner()?.account;
+    if (accountName) {
+      this.router.navigate(['/@', accountName], { queryParams: { signIn: true } });
+    } else {
+      this.router.navigate(['/'], { queryParams: { signIn: true } });
+    }
   }
 
   async openPostDialog(): Promise<void> {

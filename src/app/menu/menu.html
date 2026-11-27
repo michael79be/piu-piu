@@ -3,7 +3,7 @@
     <img src="apple-touch-icon.png" alt="Piu-Piu" class="w-12 h-12 rounded-full bg-white p-1 hover:opacity-80 transition-opacity cursor-pointer" />
   </div>
 <nav class="flex-1">
-      <button tuiButton appearance="flat" size="m" class="w-full justify-start px-3 py-2 mb-2" (click)="goHome()"
+      <button tuiButton appearance="flat" size="m" type="button" class="w-full justify-start px-3 py-2 mb-2" (click)="goHome()"
       tuiHintDirection="end" tuiHint="Home"
       [class.bg-blue-50]="currentRoute().startsWith('/@')"
       [class.text-blue-700]="currentRoute().startsWith('/@')"
@@ -12,7 +12,7 @@
         <la-icon [icon]="['las', 'home']" size="2x"></la-icon>
         <span class="max-sm:hidden">Home</span>
       </button>
-      <button tuiButton appearance="flat" size="m" class="w-full justify-start px-3 py-2 mb-2" (click)="onFeed()"
+      <button tuiButton appearance="flat" size="m" type="button" class="w-full justify-start px-3 py-2 mb-2" (click)="onFeed()"
       tuiHintDirection="end" tuiHint="Feed"
       [class.bg-blue-50]="currentRoute() === '/feed'"
       [class.text-blue-700]="currentRoute() === '/feed'"
@@ -22,7 +22,7 @@
         <span class="max-sm:hidden">Feed</span>
       </button>
       @if (canPost()) {
-        <button tuiButton appearance="flat" size="m" class="w-full justify-start px-3 py-2 mb-2" (click)="openPostDialog()"
+        <button tuiButton appearance="flat" size="m" type="button" class="w-full justify-start px-3 py-2 mb-2" (click)="openPostDialog()"
         tuiHintDirection="end" tuiHint="Post">
           <la-icon [icon]="['lar', 'edit']" size="2x"></la-icon>
           <span class="max-sm:hidden">Post</span>
@@ -33,7 +33,7 @@
   <div tuiDropdown #dropdown="tuiDropdown" [tuiDropdownOpen]="showAccountMenu()">
   <div [tuiDropdown]="content">
     <button tuiButton appearance="flat" tuiDropdownAuto tuiDropdownRole="menu" type="button" [tuiDropdown]="content" class="w-full justify-start"
-    tuiHintDirection="end" tuiHint="@{{ accountDisplay() }}">
+    tuiHintDirection="end" tuiHint="{{ accountDisplay() }}">
       @if (avatarUrl()) {
         <img [src]="avatarUrl()" alt="@{{ displayName() }}" onerror="this.style.display='none'" class="w-8 h-8 rounded-full bg-gray-100 p-1" />
       } @else {

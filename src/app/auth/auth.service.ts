@@ -61,7 +61,9 @@ export class AuthService {
     const providerPrefix = profile?.provider ?? '';
     const providerSuffix = getProviderByPrefix(providerPrefix)?.prefix ?? '';
 
-    const accountWithSuffix = providerSuffix ? `${accountName}/${providerSuffix}` : accountName;
+    const accountWithSuffix = providerSuffix && !accountName.endsWith(`/${providerSuffix}`)
+      ? `${accountName}/${providerSuffix}`
+      : accountName;
 
     const signerInfo: SignerInfo = {
       username,

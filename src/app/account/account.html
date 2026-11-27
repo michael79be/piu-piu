@@ -7,7 +7,7 @@
       </button>
       <div class="flex-1">
         @if (profileData(); as profile) {
-          <div class="flex items-start gap-4 max-sm:flex-col max-sm:items-start">
+          <div class="flex items-center gap-4 min-w-0">
             @if (avatarUrl()) {
               <img [src]="avatarUrl()" alt="@{{ profile.username }}" class="w-16 h-16 rounded-full bg-gray-100 flex-shrink-0 max-sm:w-12 max-sm:h-12" onerror="this.style.display='none'" />
             }

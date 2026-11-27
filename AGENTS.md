@@ -70,17 +70,20 @@ Local provider (`provider.mjs` / `provider/`) runs on `:3000` and persists to `p
 ### Room service (`src/app/room/room.service.ts`)
 
 - `RoomService` - manages trystero P2P room for data sync
-- `joinRoom(accountName)` - joins room named after account
-- Uses actions: `whoami` (global room), `post`, `request`, `provide`
-- Signed-in users announce themselves with signerInfo; guests participate but don't announce
+- `joinRoom(accountName)` - joins room named after account. Account room only uses `postAction`. Broadcasts `requestPosts()` in global room after joining.
+- Uses actions:
+  - **Account room**: `post` only (broadcast new posts)
+  - **Global room** `"piu-piu"`: `whoami` (broadcast who you are), `request` (broadcast to ask for posts), `provide` (provide posts to requests)
+- `requestPosts(accountName, { before?, after? })` - broadcasts request for an account's posts in global room
+- `handleRequest()` - filters regular posts by `before`/`after` UUID range, always includes meta posts (@settings, @follow) unfiltered
 - `handleIncomingPost()` - verifies post signature using sender's publicKey, stores valid posts in IndexedDB
-- `broadcastPost(post)` - sends post to all peers in room
+- `broadcastPost(post)` - sends post to all peers in account room
 - Dispatches `piu-piu:load-posts` custom event after storing incoming posts
-- Global room `"piu-piu"` for all users (whoami only), polling: 10s newer posts (`after` latest), 30s older posts (`before` oldest)
 - `joinGlobalRoom()` / `leaveGlobalRoom()` - manages global room connection
-- `announceGlobalIfSignedIn()` - broadcasts whoami with encrypted subscription field (preserves existing PushSubscription)
+- `announceGlobalIfSignedIn()` - broadcasts whoami with encrypted subscription field
 - `updateWhoamiSubscription()` - updates whoami with new push subscription, updates sessionStorage
 - Meta posts (`@settings`, `@follow`) broadcast on room join and every 60s
+- Polling: meta posts every 60s (no per-post newer/older polling)
 - Logs join/leave/whoami/post events to console
 
 ### Post service (`src/app/post/post.service.ts`)
@@ -193,15 +196,16 @@ All routes use lazy-loaded components (`loadComponent`).
 - Loads posts from IndexedDB via `PostService.getVerifiedPosts()`
 - Listens for `piu-piu:load-posts` custom event to auto-refresh posts
 - Uses `AuthService` for authentication state
-- Auto-triggers WebAuthn sign-in when `?signIn=true` query param present
+- Auto-triggers WebAuthn sign-in when `?signIn=true` query param present (guarded by `signingIn` signal to prevent double trigger on mobile)
 - Push notifications: subscribe/unsubscribe via service worker, hybrid RSA encryption, updates whoami
 - **Push subscription persists across reloads** - auto-restored on page load via `pushManager.getSubscription()` and IndexedDB `@subscription`
-- Follow/unfollow button with loading state, hidden on mobile
+- Follow/unfollow button with loading state, hidden on mobile; on mobile shows as icon-only on new line below header
 
 **Profile loading flow:**
 - `ProfileResolver` loads profile data from route params (`accountName` + optional `provider`)
 - Always uses provider service to lookup short URL and decode profile from `/profile/:encoded` path
 - Profile data is stored in `ProfileService` for component access
+- On room join, broadcasts `requestPosts(accountName, { after: latestLocalPostUuid })` in global room for incremental sync
 
 **Post flow:**
 - Post button opens `PostDialogComponent` via `TuiDialogService`
@@ -230,6 +234,7 @@ All routes use lazy-loaded components (`loadComponent`).
 - Loads verified posts via `PostService.getVerifiedPosts()` for each followed account
 - Small avatar (`w-6 h-6`) for each post using `getAvatarUrl()` with Gravatar/Libravatar
 - Signal-based `gravatarCache` with on-demand `fetchAndCacheAvatar`
+- On load: broadcasts `requestPosts(targetAccount, { after: lastId })` for each followed account in global room (incremental sync)
 
 ### Pull Accounts Script (`pull_accounts.mjs`)
 

@@ -58,8 +58,10 @@ Everything is client-side; there is no server except the optional local shortene
 - `RoomService` - manages trystero P2P room for data sync
 - `joinRoom(accountName)` - joins room named after account
 - Actions: `whoami` (global room), `post`, `request`, `provide`
-- Global room `"piu-piu"` for all users (whoami only), polling: 10s newer posts, 30s older posts
+- Global room `"piu-piu"` for all users (whoami only)
 - Meta posts (`@settings`, `@follow`) broadcast on join and every 60s
+- Profile visits broadcast request for account posts in global room
+- Feed visits broadcast incremental request for each followed account
 
 ### Crypto service (`src/app/crypto/crypto.service.ts`)
 - Centralized cryptographic operations
