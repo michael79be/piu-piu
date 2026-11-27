@@ -35,7 +35,7 @@
     <button tuiButton appearance="flat" tuiDropdownAuto tuiDropdownRole="menu" type="button" [tuiDropdown]="content" class="w-full justify-start"
     tuiHintDirection="end" tuiHint="{{ accountDisplay() }}">
       @if (avatarUrl()) {
-        <img [src]="avatarUrl()" alt="@{{ displayName() }}" onerror="this.style.display='none'" class="avatar rounded-full bg-gray-100 p-1" />
+        <img [src]="avatarUrl()" alt="@{{ displayName() }}" onerror="this.style.display='none'" class="sm:w-8 sm:h-8 avatar rounded-full bg-gray-100 p-1" />
       } @else {
         <la-icon [icon]="['lar', 'user']" size="2x" class="max-sm:ms-[-0.25em]"></la-icon>
       }

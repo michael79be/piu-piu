@@ -18,7 +18,7 @@ interface PostsDB extends DBSchema {
 export class PostService {
   private cryptoService = inject(CryptoService);
   private dbCache = new Map<string, Promise<IDBPDatabase<PostsDB>>>();
-  private followersWriting = false;
+  private followersQueue = Promise.resolve();
 
   private bytesToBase64(bytes: Uint8Array): string {
     return btoa(String.fromCharCode(...bytes));
@@ -551,9 +551,7 @@ export class PostService {
   }
 
   async updateFollowers(accountName: string, followerAccount: string, followData: FollowData | undefined, add: boolean): Promise<void> {
-    if (this.followersWriting) return;
-    this.followersWriting = true;
-    try {
+    this.followersQueue = this.followersQueue.then(async () => {
       const existing = await this.getFollowers(accountName);
       const followers = { ...(existing?.followers ?? {}) };
       if (add && followData) {
@@ -562,9 +560,8 @@ export class PostService {
         delete followers[followerAccount];
       }
       await this.saveFollowers(accountName, followers);
-    } finally {
-      this.followersWriting = false;
-    }
+    });
+    await this.followersQueue;
   }
 
   async updateFollowLastId(accountName: string, targetAccount: string, lastId: string): Promise<void> {

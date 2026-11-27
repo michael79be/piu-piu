@@ -219,9 +219,9 @@ export class RoomService implements OnDestroy {
 
           // Sync own @followers from received whoamis
           const me = this.authService.storedSigner();
-          if (me && data.followers) {
-            const isFollowingMe = !!data.followers.followers && me.account in data.followers.followers;
-            await this.postService.updateFollowers(me.account, data.account, data.followers.followers?.[data.account], isFollowingMe);
+          if (me && data.follow) {
+            const isFollowingMe = data.follow.follows.some(f => f.accountName === me.account);
+            await this.postService.updateFollowers(me.account, data.account, data.follow, isFollowingMe);
             if (typeof window !== 'undefined') {
               window.dispatchEvent(new CustomEvent('piu-piu:load-posts', { detail: { accountName: me.account } }));
             }
