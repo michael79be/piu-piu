@@ -3,7 +3,7 @@ import { TuiToastService } from '@taiga-ui/kit';
 import type { Room, PeerJoinContext, PeerLeaveContext } from '@trystero-p2p/core';
 import { SESSION_KEY } from '../auth/auth.enum';
 import { PostService } from '../post/post.service';
-import { MessageData, FollowData } from '../models/post-data';
+import { MessageData, FollowData, Followed } from '../models/post-data';
 import { CryptoService } from '../crypto/crypto.service';
 import { RsaPublicKeyService } from '../crypto/rsa-public-key.service';
 import { AuthService } from '../auth/auth.service';
@@ -195,7 +195,7 @@ export class RoomService implements OnDestroy {
         console.info('⬇️ [Room] Joined global room:', GLOBAL_ROOM_NAME, 'selfId:', selfInfo.userId);
 
         this.globalWhoamiAction.init(room.makeAction('whoami'));
-        this.globalWhoamiAction.onMessage((data: WhoamiPayload, context: { peerId: string; userId: string }) => {
+        this.globalWhoamiAction.onMessage(async (data: WhoamiPayload, context: { peerId: string; userId: string }) => {
           console.debug('⬇️ [Room] Global whoami received from:', context.peerId, 'account:', data.account);
           const peer = this.globalPeers().find(p => p.id === context.peerId);
           if (peer) {
@@ -215,6 +215,21 @@ export class RoomService implements OnDestroy {
               } as any,
             };
             this.globalPeers.update(current => [...current, newPeer]);
+          }
+
+          // If this peer follows us, add them to our @followers index
+          // If they no longer follow us, remove them
+          const me = this.authService.storedSigner();
+          if (me && data.follow) {
+            const isFollowingMe = data.follow.follows.some(f => f.accountName === me.account);
+            const existing = await this.postService.getFollowers(me.account);
+            const followers = { ...(existing?.followers ?? {}) };
+            if (isFollowingMe) {
+              followers[data.account] = data.follow;
+            } else {
+              delete followers[data.account];
+            }
+            await this.postService.saveFollowers(me.account, followers);
           }
         });
 
@@ -331,12 +346,13 @@ export class RoomService implements OnDestroy {
     
     const metaPosts: MessageData[] = meta.map(m => {
       const isSettings = 'avatarUrl' in m;
+      const isFollowers = 'followers' in m;
       const post: MessageData = {
-        uuid: isSettings ? '@settings' : '@follow',
+        uuid: isSettings ? '@settings' : isFollowers ? '@followers' : '@follow',
         sender: signer?.username ?? 'unknown',
         senderAccount: signer?.account ?? accountName,
         timestamp: Date.now(),
-        content: isSettings ? 'settings' : 'follow',
+        content: isSettings ? 'settings' : isFollowers ? 'followers' : 'follow',
         publicKey: signer?.publicKey ?? '',
         signature: m.signature ?? '',
         authenticatorData: m.authenticatorData ?? '',
@@ -344,6 +360,9 @@ export class RoomService implements OnDestroy {
       };
       if (!isSettings && 'follows' in m) {
         (post as any).follows = (m as any).follows;
+      }
+      if (isFollowers && 'followers' in m) {
+        (post as any).followers = (m as any).followers;
       }
       return post;
     });
@@ -393,7 +412,7 @@ export class RoomService implements OnDestroy {
       postObj = post;
     }
 
-    const isMeta = postObj.uuid === '@settings' || postObj.uuid === '@follow';
+    const isMeta = postObj.uuid === '@settings' || postObj.uuid === '@follow' || postObj.uuid === '@followers';
 
     if (isMeta && postObj.uuid === '@follow' && !('follows' in postObj)) {
       return;
@@ -401,14 +420,21 @@ export class RoomService implements OnDestroy {
 
     // Don't overwrite the signed-in user's own meta posts during sync unless local is missing/invalid
     const signer = this.authService.storedSigner();
-    if (isMeta && signer?.account && accountName === signer.account) {
+    if (isMeta && signer?.account && accountName === signer.account && postObj.senderAccount === accountName) {
       const existing = await this.postService.getPost(accountName, postObj.uuid);
       if (existing) {
         const valid = postObj.uuid === '@settings'
           ? ('settings' in existing && typeof existing.settings === 'object')
-          : ('follows' in existing && Array.isArray((existing as any).follows) && (existing as any).follows.length > 0);
+          : postObj.uuid === '@follow'
+            ? ('follows' in existing && Array.isArray((existing as any).follows) && (existing as any).follows.length > 0)
+            : ('followers' in existing && typeof existing.followers === 'object');
         if (valid) return;
       }
+    }
+
+    // @followers must only be stored under the account it belongs to (senderAccount)
+    if (postObj.uuid === '@followers' && postObj.senderAccount !== accountName) {
+      return;
     }
 
     if (!isMeta) {
@@ -431,14 +457,39 @@ export class RoomService implements OnDestroy {
     }
 
     const db = await this.postService.getDB(accountName);
-    await db.put('posts', JSON.stringify(postObj), postObj.uuid);
-    console.debug('⬇️ [Room] Stored verified', isMeta ? 'meta' : 'post', 'from:', postObj.senderAccount, 'for @', accountName);
+    // Don't store meta posts from other accounts under our own DB key
+    if (isMeta && postObj.senderAccount !== accountName) {
+      // Still processed followers logic above, but skip storage
+    } else {
+      await db.put('posts', JSON.stringify(postObj), postObj.uuid);
+      console.debug('⬇️ [Room] Stored verified', isMeta ? 'meta' : 'post', 'from:', postObj.senderAccount, 'for @', accountName);
+    }
     // Update follow lastId if this is a regular post (not meta)
     if (!isMeta) {
       try {
         await this.postService.updateFollowLastId(accountName, postObj.senderAccount, postObj.uuid);
       } catch {
         // Ignore - follow lastId update must not block post reload
+      }
+    }
+
+    // Build @followers index: when receiving a @follow post, if the signed-in user
+    // is in the follower's follows list, store that follower's data in the signed-in
+    // user's @followers meta post. Each entry carries the follower's own signature
+    // as proof, so followers cannot be faked.
+    if (postObj.uuid === '@follow' && (postObj as any).follows) {
+      const me = this.authService.storedSigner();
+      if (me) {
+        const follows = (postObj as any).follows as Followed[];
+        const isFollowingMe = follows.some(f => f.accountName === me.account);
+        const existing = await this.postService.getFollowers(me.account);
+        const followers = { ...(existing?.followers ?? {}) };
+        if (isFollowingMe) {
+          followers[postObj.senderAccount] = postObj as unknown as FollowData;
+        } else {
+          delete followers[postObj.senderAccount];
+        }
+        await this.postService.saveFollowers(me.account, followers);
       }
     }
     
@@ -472,7 +523,7 @@ private stopPolling(): void {
     console.debug('⬆️ [Room] Broadcasted post:', post.uuid);
   }
 
-  private async announceGlobalIfSignedIn(peerId?: string): Promise<void> {
+  public async announceGlobalIfSignedIn(peerId?: string): Promise<void> {
     const stored = sessionStorage.getItem(SESSION_KEY);
     if (!stored) return;
 

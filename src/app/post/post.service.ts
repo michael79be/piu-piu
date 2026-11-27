@@ -1,7 +1,7 @@
 import { Injectable, inject } from '@angular/core';
 import { openDB, DBSchema, IDBPDatabase } from 'idb';
 import { CryptoService } from '../crypto/crypto.service';
-import { MessageData, SettingsData, FollowData, MetaData, Signed, Followed } from '../models/post-data';
+import { MessageData, SettingsData, FollowData, FollowersData, MetaData, Signed, Followed } from '../models/post-data';
 import { SubscriptionData } from '../models/subscription-data';
 import { SignerInfo } from '../models/signer-info';
 import { v7 as uuidv7 } from 'uuid';
@@ -140,7 +140,7 @@ export class PostService {
     return posts.sort((a, b) => b.timestamp - a.timestamp);
   }
 
-  async getMeta(accountName: string): Promise<(SettingsData | FollowData)[]> {
+  async getMeta(accountName: string): Promise<(SettingsData | FollowData | FollowersData)[]> {
     const db = await this.getDB(accountName);
     const tx = db.transaction('posts', 'readonly');
     const store = tx.objectStore('posts');
@@ -373,6 +373,9 @@ export class PostService {
       const db = await this.getDB(signer.account);
       await db.put('posts', JSON.stringify(followData), '@follow');
 
+      // Update target account's @followers meta post
+      await this.updateFollowers(targetAccount, signer.account, followData, true);
+
       return followData;
     } catch (e) {
       console.error('🔴 [Post] WebAuthn sign failed for follow:', e);
@@ -419,6 +422,9 @@ export class PostService {
       } else {
         await db.put('posts', JSON.stringify(followData), '@follow');
       }
+
+      // Remove signer from target account's @followers meta post
+      await this.updateFollowers(targetAccount, signer.account, undefined, false);
 
       return followData;
     } catch (e) {
@@ -523,6 +529,39 @@ export class PostService {
     const isValid = await this.verifyFollow(followData, publicKey);
     if (!isValid) return false;
     return followData.follows.some(f => f.accountName === targetAccount);
+  }
+
+  async getFollowers(accountName: string): Promise<FollowersData | null> {
+    const db = await this.getDB(accountName);
+    const data = await db.get('posts', '@followers');
+    if (!data) return null;
+    const parsed = typeof data === 'string' ? JSON.parse(data) : data;
+    if (!parsed.followers || typeof parsed.followers !== 'object') return null;
+    return parsed;
+  }
+
+  async saveFollowers(accountName: string, followers: Record<string, FollowData>): Promise<void> {
+    const db = await this.getDB(accountName);
+    const followersData: FollowersData = {
+      uuid: MetaData.Followers,
+      followers,
+      signature: '',
+      authenticatorData: '',
+      clientData: '',
+      publicKey: '',
+    };
+    await db.put('posts', JSON.stringify(followersData), '@followers');
+  }
+
+  async updateFollowers(accountName: string, followerAccount: string, followData: FollowData | undefined, add: boolean): Promise<void> {
+    const existing = await this.getFollowers(accountName);
+    const followers = { ...(existing?.followers ?? {}) };
+    if (add && followData) {
+      followers[followerAccount] = followData;
+    } else {
+      delete followers[followerAccount];
+    }
+    await this.saveFollowers(accountName, followers);
   }
 
   async updateFollowLastId(accountName: string, targetAccount: string, lastId: string): Promise<void> {

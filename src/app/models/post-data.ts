@@ -9,7 +9,8 @@ export interface Signed {
 
 export enum MetaData {
   Settings = '@settings',
-  Follow = '@follow'
+  Follow = '@follow',
+  Followers = '@followers'
 };
 
 export interface PostData extends Signed {
@@ -39,4 +40,8 @@ export interface Followed {
 
 export interface FollowData extends PostData {
   follows: Followed[];
+}
+
+export interface FollowersData extends PostData {
+  followers: Record<string, FollowData>;
 }

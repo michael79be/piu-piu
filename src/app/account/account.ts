@@ -57,12 +57,14 @@ export class Account implements OnInit, OnDestroy {
   signingIn = signal(false);
 
   avatarUrl = signal<string | null>(null);
+  followersCount = signal(0);
 
   private handlePostsUpdated = (event: CustomEvent) => {
     const detail = event.detail;
     console.debug('🟢 [Account] piu-piu:load-posts received:', detail?.accountName, 'current:', this.accountName());
     if (!detail?.accountName || detail.accountName === this.accountName()) {
       this.loadPosts();
+      this.loadFollowers();
     }
   };
 
@@ -93,6 +95,20 @@ export class Account implements OnInit, OnDestroy {
     const settings = await this.postService.getSettings(accountName);
     if (settings?.settings.avatarUrl) {
       this.avatarUrl.set(settings.settings.avatarUrl);
+    }
+  }
+
+  async loadFollowers(): Promise<void> {
+    const accountName = this.accountName();
+    if (!accountName) {
+      this.followersCount.set(0);
+      return;
+    }
+    try {
+      const followersData = await this.postService.getFollowers(accountName);
+      this.followersCount.set(followersData?.followers ? Object.keys(followersData.followers).length : 0);
+    } catch {
+      this.followersCount.set(0);
     }
   }
 
@@ -146,6 +162,7 @@ export class Account implements OnInit, OnDestroy {
     this.loadPosts();
     this.loadFollowStatus();
     this.loadAvatar();
+    this.loadFollowers();
 
     const signInParam = this.route.snapshot.queryParamMap.get('signIn');
     if (signInParam === 'true' && !this.signingIn()) {
@@ -268,6 +285,8 @@ export class Account implements OnInit, OnDestroy {
         const result = await this.postService.unfollow(signer, targetAccount);
         if (result) {
           this.isFollowing.set(false);
+          await this.roomService.announceGlobalIfSignedIn();
+          await this.roomService.requestPosts(targetAccount, { after: undefined });
           this.errorService.showSuccess(`Unfollowed @${targetAccount}`);
         } else {
           this.errorService.showError('Failed to unfollow');
@@ -276,6 +295,8 @@ export class Account implements OnInit, OnDestroy {
         const result = await this.postService.saveFollow(signer, targetAccount, targetProfile.profileUrl);
         if (result) {
           this.isFollowing.set(true);
+          await this.roomService.announceGlobalIfSignedIn();
+          await this.roomService.requestPosts(targetAccount, { after: undefined });
           this.errorService.showSuccess(`You are now following @${targetAccount}`);
         } else {
           this.errorService.showError('Failed to follow');

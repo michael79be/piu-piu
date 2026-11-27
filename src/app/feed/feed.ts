@@ -82,11 +82,11 @@ export class Feed implements OnInit, OnDestroy {
     } else {
       const followData = await this.postService.getFollow(viewerAccount);
       if (!followData) {
-        followedAccounts = ['piupiu'];
+        followedAccounts = [];
       } else {
         const isValid = await this.postService.verifyFollow(followData, viewerPublicKey);
         if (!isValid) {
-          followedAccounts = ['piupiu'];
+          followedAccounts = [];
         } else {
           followedAccounts = followData.follows.map(f => f.accountName);
         }
