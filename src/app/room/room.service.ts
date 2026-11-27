@@ -54,8 +54,6 @@ export class RoomService implements OnDestroy {
   private globalRequestAction: RequestAction = createRequestAction();
   private globalProvideAction: ProvideAction = createProvideAction();
   private postAction: PostAction = createPostAction();
-  private requestAction: RequestAction = createRequestAction();
-  private provideAction: ProvideAction = createProvideAction();
 
   // Separate locks for account room and global room
   private accountJoinLock = Promise.resolve();
@@ -118,18 +116,6 @@ export class RoomService implements OnDestroy {
           await this.zone.run(() => this.handleIncomingPost(data));
         });
 
-        this.requestAction.init(room.makeAction('request'));
-        this.requestAction.onMessage(async (data: RequestPayload, context: { peerId: string; userId: string }) => {
-          console.debug('🟢 [Room] Request received from:', context.peerId, 'account:', data.accountName);
-          await this.zone.run(() => this.handleRequest(data, context.peerId));
-        });
-
-        this.provideAction.init(room.makeAction('provide'));
-        this.provideAction.onMessage(async (data: ProvidePayload, context: { peerId: string; userId: string }) => {
-          console.debug('🟢 [Room] Provide received from:', context.peerId, 'posts:', data.posts.length);
-          await this.zone.run(() => this.handleProvide(data));
-        });
-
         room.onPeerJoin(async (context: PeerJoinContext) => {
           const users = room.getUsers();
           const userInfo = users[context.userId];
@@ -143,7 +129,6 @@ export class RoomService implements OnDestroy {
             return [...current, peer];
           });
           console.debug('🟢 [Room] Peer joined:', context.peerId, 'userId:', context.userId);
-          this.requestPosts(accountName);
           const meta = await this.postService.getMeta(accountName);
         });
 
@@ -154,7 +139,11 @@ export class RoomService implements OnDestroy {
 
         await room.ready;
 
-        await this.requestPosts(accountName);
+        // Broadcast request for this account's posts in global room
+        // Use latest local post as 'after' filter for incremental sync
+        const localPosts = await this.postService.getAllPostsWithFullData(accountName);
+        const latestUuid = localPosts.length > 0 ? localPosts[0].uuid : undefined;
+        await this.requestPosts(accountName, { after: latestUuid });
         // Poll @ posts (settings, follow) on join
         const meta = await this.postService.getMeta(accountName);
         for (const m of meta) {
@@ -231,7 +220,7 @@ export class RoomService implements OnDestroy {
         this.globalRequestAction.init(room.makeAction('request'));
         this.globalRequestAction.onMessage(async (data: RequestPayload, context: { peerId: string; userId: string }) => {
           console.info('🔵 [Room] Global request received from:', context.peerId, 'account:', data.accountName);
-          await this.zone.run(() => this.handleRequest(data, context.peerId, true));
+          await this.zone.run(() => this.handleRequest(data, context.peerId));
         });
 
         // Provide action for global room
@@ -293,64 +282,35 @@ export class RoomService implements OnDestroy {
     this.globalPeers.set([]);
   }
 
-  private async requestPosts(accountName: string, options?: { before?: string; after?: string }): Promise<void> {
-    const payload: RequestPayload = {
-      accountName,
-      requesterId: this.selfId() ?? '',
-      before: options?.before,
-      after: options?.after,
-    };
+  private async handleRequest(data: RequestPayload, peerId: string): Promise<void> {
+    const accountName = data.accountName;
+    if (!accountName) return;
 
-    this.requestAction.send(payload);
-    console.debug('🟢 [Room] Requested posts for:', accountName, 'before:', options?.before, 'after:', options?.after);
-  }
+    // Filter regular posts by uuid range, but always include meta posts (@settings, @follow)
+    const posts = await this.postService.getAllPostsWithFullData(accountName, false);
+    console.info('🔵 [Room] Global request check for:', accountName, 'found posts:', posts.length);
 
-  private async handleRequest(data: RequestPayload, peerId: string, isGlobal = false): Promise<void> {
-    let accountName: string;
-    // For global room: respond if we have data for this account locally
-    // For account room: only respond if it's our account
-    if (isGlobal) {
-      accountName = data.accountName;
-      if (!accountName) return;
-      // Check if we have any posts for this account in our DB
-      const posts = await this.postService.getAllPostsWithFullData(accountName, true);
-      console.info('🔵 [Room] Global request check for:', accountName, 'found posts:', posts.length);
-      if (posts.length === 0) return;
-    } else {
-      const currentAcc = this.currentAccount();
-      if (!currentAcc || currentAcc !== data.accountName) return;
-      accountName = currentAcc;
-    }
-
-    // Include meta posts (@settings, @follow) for global room requests (pull_accounts)
-    let posts = await this.postService.getAllPostsWithFullData(accountName, isGlobal);
-
+    let filteredPosts = posts;
     if (data.before) {
-      const beforeIndex = posts.findIndex(p => p.uuid === data.before);
+      const beforeIndex = filteredPosts.findIndex(p => p.uuid === data.before);
       if (beforeIndex >= 0) {
-        posts = posts.slice(0, beforeIndex);
+        filteredPosts = filteredPosts.slice(0, beforeIndex);
       }
     }
 
     if (data.after) {
-      const afterIndex = posts.findIndex(p => p.uuid === data.after);
+      const afterIndex = filteredPosts.findIndex(p => p.uuid === data.after);
       if (afterIndex >= 0) {
-        posts = posts.slice(afterIndex + 1);
+        filteredPosts = filteredPosts.slice(afterIndex + 1);
       }
     }
 
-    if (posts.length === 0) {
-      console.debug('🟢 [Room] No posts to provide for:', accountName, 'before:', data.before, 'after:', data.after);
-      return;
-    }
+    if (!this.globalProvideAction) return;
 
-    const provide = isGlobal ? this.globalProvideAction : this.provideAction;
-    if (!provide) return;
-
+    // Always include meta posts (not filtered by uuid range)
     const meta = await this.postService.getMeta(accountName);
     const signer = this.authService?.storedSigner?.();
     
-    // Convert meta to MessageData format
     const metaPosts: MessageData[] = meta.map(m => ({
       uuid: 'avatarUrl' in m ? '@settings' : '@follow',
       sender: signer?.username ?? 'unknown',
@@ -363,10 +323,10 @@ export class RoomService implements OnDestroy {
       clientData: m.clientData ?? '',
     }));
 
-    const allPosts = [...posts, ...metaPosts];
+    const allPosts = [...filteredPosts, ...metaPosts];
 
     if (allPosts.length === 0) {
-      console.debug('🟢 [Room] No posts to provide for:', accountName, 'before:', data.before, 'after:', data.after);
+      console.debug('🟢 [Room] No posts to provide for:', accountName);
       return;
     }
 
@@ -375,21 +335,20 @@ export class RoomService implements OnDestroy {
       posts: allPosts,
     };
 
-    await provide.send(payload, { target: peerId });
-    console.debug('🟢 [Room] Provided', allPosts.length, 'posts to:', peerId, 'before:', data.before, 'after:', data.after);
+    await this.globalProvideAction.send(payload, { target: peerId });
+    console.debug('🟢 [Room] Provided', allPosts.length, 'posts to:', peerId);
   }
 
-  private async handleProvide(data: ProvidePayload): Promise<void> {
-    const accountName = this.currentAccount();
-    if (!accountName || accountName !== data.accountName) return;
-
-    console.debug('🟢 [Room] Received', data.posts.length, 'posts from peer');
-    for (const post of data.posts) {
-      await this.handleIncomingPost(post);
-    }
-    if (typeof window !== 'undefined') {
-      window.dispatchEvent(new CustomEvent('piu-piu:load-posts', { detail: { accountName } }));
-    }
+  async requestPosts(accountName: string, options?: { before?: string; after?: string }): Promise<void> {
+    if (!this.globalRequestAction) return;
+    const payload: RequestPayload = {
+      accountName,
+      requesterId: this.selfId() ?? '',
+      before: options?.before,
+      after: options?.after,
+    };
+    this.globalRequestAction.send(payload);
+    console.debug('🟢 [Room] Broadcasted request for @', accountName, 'in global room', 'after:', options?.after);
   }
 
   private async handleIncomingPost(post: MessageData | string): Promise<void> {
@@ -452,26 +411,6 @@ export class RoomService implements OnDestroy {
     const latestUuid = posts.length > 0 ? posts[0].uuid : undefined;
     const oldestUuid = posts.length > 0 ? posts[posts.length - 1].uuid : undefined;
 
-    // Poll for newer posts (after latest) every 10 seconds
-    const afterInterval = setInterval(async () => {
-      const currentPosts = await this.postService.getAllPostsWithFullData(accountName);
-      const latest = currentPosts.length > 0 ? currentPosts[0].uuid : undefined;
-      if (latest) {
-        this.requestPosts(accountName, { after: latest });
-      }
-    }, 10000);
-    this.pollingIntervals.push(afterInterval);
-
-    // Poll for older posts (before oldest) every 30 seconds
-    const beforeInterval = setInterval(async () => {
-      const currentPosts = await this.postService.getAllPostsWithFullData(accountName);
-      const oldest = currentPosts.length > 0 ? currentPosts[currentPosts.length - 1].uuid : undefined;
-      if (oldest) {
-        this.requestPosts(accountName, { before: oldest });
-      }
-    }, 30000);
-    this.pollingIntervals.push(beforeInterval);
-
     // Poll for @ posts (settings, follow) every 60 seconds and broadcast them
     const metaInterval = setInterval(async () => {
       const meta = await this.postService.getMeta(accountName);
@@ -480,11 +419,6 @@ export class RoomService implements OnDestroy {
       }
     }, 60000);
     this.pollingIntervals.push(metaInterval);
-
-    // Initial request for older posts if we have any
-    if (oldestUuid) {
-      this.requestPosts(accountName, { before: oldestUuid });
-    }
   }
 
 private stopPolling(): void {
@@ -575,8 +509,6 @@ private stopPolling(): void {
     
     // Reset actions
     this.postAction = createPostAction();
-    this.requestAction = createRequestAction();
-    this.provideAction = createProvideAction();
     
     this.isConnected.set(false);
     this.peers.set([]);

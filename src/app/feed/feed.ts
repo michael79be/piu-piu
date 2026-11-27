@@ -98,6 +98,11 @@ export class Feed implements OnInit, OnDestroy {
         return;
       }
 
+      // Broadcast request for every followed account in global room
+      for (const targetFollow of followData.follows) {
+        await this.roomService.requestPosts(targetFollow.accountName, { after: targetFollow.lastId });
+      }
+
       // Collect posts from all followed accounts
       const allPosts: MessageData[] = [];
       for (const targetAccount of followedAccounts) {
