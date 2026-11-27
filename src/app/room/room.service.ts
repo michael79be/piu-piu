@@ -226,6 +226,17 @@ export class RoomService implements OnDestroy {
               window.dispatchEvent(new CustomEvent('piu-piu:load-posts', { detail: { accountName: me.account } }));
             }
           }
+
+          // Store received followers data for the sender's account (used when viewing their profile)
+          if (data.followers) {
+            const senderAccount = data.account;
+            const existing = await this.postService.getFollowers(senderAccount);
+            const currentFollowers = existing?.followers ?? {};
+            const receivedFollowers = data.followers.followers ?? {};
+            // Merge received followers (keep newer data)
+            const merged = { ...currentFollowers, ...receivedFollowers };
+            await this.postService.saveFollowers(senderAccount, merged);
+          }
         });
 
         // Handle request in global room - respond if we own the account
@@ -339,15 +350,14 @@ export class RoomService implements OnDestroy {
     const meta = await this.postService.getMeta(accountName);
     const signer = this.authService?.storedSigner?.();
     
-    const metaPosts: MessageData[] = meta.map(m => {
+    const metaPosts: MessageData[] = meta.filter(m => 'followers' in m ? false : true).map(m => {
       const isSettings = 'avatarUrl' in m;
-      const isFollowers = 'followers' in m;
       const post: MessageData = {
-        uuid: isSettings ? '@settings' : isFollowers ? '@followers' : '@follow',
+        uuid: isSettings ? '@settings' : '@follow',
         sender: signer?.username ?? 'unknown',
         senderAccount: signer?.account ?? accountName,
         timestamp: Date.now(),
-        content: isSettings ? 'settings' : isFollowers ? 'followers' : 'follow',
+        content: isSettings ? 'settings' : 'follow',
         publicKey: signer?.publicKey ?? '',
         signature: m.signature ?? '',
         authenticatorData: m.authenticatorData ?? '',
@@ -355,9 +365,6 @@ export class RoomService implements OnDestroy {
       };
       if (!isSettings && 'follows' in m) {
         (post as any).follows = (m as any).follows;
-      }
-      if (isFollowers && 'followers' in m) {
-        (post as any).followers = (m as any).followers;
       }
       return post;
     });
@@ -407,7 +414,7 @@ export class RoomService implements OnDestroy {
       postObj = post;
     }
 
-    const isMeta = postObj.uuid === '@settings' || postObj.uuid === '@follow' || postObj.uuid === '@followers';
+    const isMeta = postObj.uuid === '@settings' || postObj.uuid === '@follow';
 
     if (isMeta && postObj.uuid === '@follow' && !('follows' in postObj)) {
       return;
@@ -420,16 +427,9 @@ export class RoomService implements OnDestroy {
       if (existing) {
         const valid = postObj.uuid === '@settings'
           ? ('settings' in existing && typeof existing.settings === 'object')
-          : postObj.uuid === '@follow'
-            ? ('follows' in existing && Array.isArray((existing as any).follows) && (existing as any).follows.length > 0)
-            : ('followers' in existing && typeof existing.followers === 'object');
+          : ('follows' in existing && Array.isArray((existing as any).follows) && (existing as any).follows.length > 0);
         if (valid) return;
       }
-    }
-
-    // @followers must only be stored under the account it belongs to (senderAccount)
-    if (postObj.uuid === '@followers' && postObj.senderAccount !== accountName) {
-      return;
     }
 
     if (!isMeta) {
