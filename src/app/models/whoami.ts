@@ -1,4 +1,4 @@
-import { FollowData } from "./post-data";
+import { FollowData, FollowersData } from "./post-data";
 
 export interface WhoamiPayload {
   username: string;
@@ -6,4 +6,5 @@ export interface WhoamiPayload {
   providerSuffix: string;
   subscription?: string;
   follow?: FollowData;
+  followers?: FollowersData;
 }

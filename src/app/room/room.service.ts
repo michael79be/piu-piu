@@ -3,7 +3,7 @@ import { TuiToastService } from '@taiga-ui/kit';
 import type { Room, PeerJoinContext, PeerLeaveContext } from '@trystero-p2p/core';
 import { SESSION_KEY } from '../auth/auth.enum';
 import { PostService } from '../post/post.service';
-import { MessageData, FollowData, Followed } from '../models/post-data';
+import { MessageData, FollowData, FollowersData } from '../models/post-data';
 import { CryptoService } from '../crypto/crypto.service';
 import { RsaPublicKeyService } from '../crypto/rsa-public-key.service';
 import { AuthService } from '../auth/auth.service';
@@ -217,25 +217,13 @@ export class RoomService implements OnDestroy {
             this.globalPeers.update(current => [...current, newPeer]);
           }
 
-          // If this peer follows us, add them to our @followers index
-          // If they no longer follow us, remove them
+          // Sync own @followers from received whoamis
           const me = this.authService.storedSigner();
-          if (me && data.follow) {
-            const isFollowingMe = data.follow.follows.some(f => f.accountName === me.account);
-            await this.postService.updateFollowers(me.account, data.account, data.follow, isFollowingMe);
+          if (me && data.followers) {
+            const isFollowingMe = !!data.followers.followers && me.account in data.followers.followers;
+            await this.postService.updateFollowers(me.account, data.account, data.followers.followers?.[data.account], isFollowingMe);
             if (typeof window !== 'undefined') {
               window.dispatchEvent(new CustomEvent('piu-piu:load-posts', { detail: { accountName: me.account } }));
-            }
-          }
-
-          // If viewing a profile and this peer follows that account, add them
-          // If they no longer follow that account, remove them
-          const currentAcct = this.currentAccount();
-          if (currentAcct && currentAcct !== me?.account && data.follow) {
-            const isFollowingCurrent = data.follow.follows.some(f => f.accountName === currentAcct);
-            await this.postService.updateFollowers(currentAcct, data.account, data.follow, isFollowingCurrent);
-            if (typeof window !== 'undefined') {
-              window.dispatchEvent(new CustomEvent('piu-piu:load-posts', { detail: { accountName: currentAcct } }));
             }
           }
         });
@@ -479,19 +467,6 @@ export class RoomService implements OnDestroy {
         // Ignore - follow lastId update must not block post reload
       }
     }
-
-    // Build @followers index: when receiving a @follow post, if the signed-in user
-    // is in the follower's follows list, store that follower's data.
-    if (postObj.uuid === '@follow' && (postObj as any).follows) {
-      const me = this.authService.storedSigner();
-      if (me) {
-        const follows = (postObj as any).follows as Followed[];
-        const isFollowingMe = follows.some(f => f.accountName === me.account);
-        if (isFollowingMe) {
-          await this.postService.updateFollowers(me.account, postObj.senderAccount, postObj as unknown as FollowData, true);
-        }
-      }
-    }
     
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('piu-piu:load-posts', { detail: { accountName } }));
@@ -544,12 +519,20 @@ private stopPolling(): void {
         if (followData) follow = followData;
       }
 
+      // Get own followers data (from local DB)
+      let followers: FollowersData | undefined;
+      if (signer.account) {
+        const f = await this.postService.getFollowers(signer.account);
+        followers = f ?? undefined;
+      }
+
       const payload: WhoamiPayload = {
         username: signer.username,
         account: signer.account,
         providerSuffix,
         subscription,
         follow,
+        followers,
       };
       this.globalWhoamiAction.send(payload, peerId ? { target: peerId } : undefined);
 
@@ -582,6 +565,11 @@ private stopPolling(): void {
         providerSuffix,
         subscription: subscription || undefined,
       };
+      // Add followers data from local DB
+      if (signer.account) {
+        const followers = await this.postService.getFollowers(signer.account);
+        if (followers) (payload as any).followers = followers;
+      }
       // Update sessionStorage only if setting a subscription (not clearing)
       if (subscription) {
         const signerWithSubscription: SignerInfo = {
