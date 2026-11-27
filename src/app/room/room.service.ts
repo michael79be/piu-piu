@@ -3,7 +3,7 @@ import { TuiToastService } from '@taiga-ui/kit';
 import type { Room, PeerJoinContext, PeerLeaveContext } from '@trystero-p2p/core';
 import { SESSION_KEY } from '../auth/auth.enum';
 import { PostService } from '../post/post.service';
-import { MessageData, FollowData, FollowersData, SettingsData } from '../models/post-data';
+import { MessageData, FollowData, FollowersData, SettingsData, MetaData } from '../models/post-data';
 import { CryptoService } from '../crypto/crypto.service';
 import { RsaPublicKeyService } from '../crypto/rsa-public-key.service';
 import { AuthService } from '../auth/auth.service';
@@ -239,6 +239,18 @@ export class RoomService implements OnDestroy {
             const merged = { ...currentFollowers, ...receivedFollowers };
             await this.postService.saveFollowers(senderAccount, merged);
           }
+
+          // Store received settings for the sender's account
+          if (data.settings) {
+            const senderAccount = data.account;
+            await this.postService.saveSettingsData(senderAccount, data.settings);
+          }
+
+          // Store received follow data for the sender's account
+          if (data.follow) {
+            const senderAccount = data.account;
+            await this.postService.saveFollowData(senderAccount, data.follow);
+          }
         });
 
         // Handle request in global room - respond if we own the account
@@ -447,42 +459,36 @@ export class RoomService implements OnDestroy {
       postObj = post;
     }
 
-    const isMeta = postObj.uuid === '@settings';
+    const isMeta = postObj.uuid === MetaData.Settings || postObj.uuid === MetaData.Follow || postObj.uuid === MetaData.Followers;
+    if (isMeta) {
+      // Meta posts are handled via whoami broadcasts and recover action only
+      return;
+    }
 
-    if (!isMeta) {
-      const publicKey = postObj.publicKey;
-      if (!publicKey || publicKey.length === 0) {
-        console.warn('🟡 [Room] No public key in post from:', postObj.senderAccount);
-        return;
-      }
+    const publicKey = postObj.publicKey;
+    if (!publicKey || publicKey.length === 0) {
+      console.warn('🟡 [Room] No public key in post from:', postObj.senderAccount);
+      return;
+    }
 
-      const isValid = await this.postService.verifyPost(postObj);
-      if (!isValid) {
-        console.warn('🟡 [Room] Invalid post signature from:', postObj.senderAccount);
-        return;
-      }
+    const isValid = await this.postService.verifyPost(postObj);
+    if (!isValid) {
+      console.warn('🟡 [Room] Invalid post signature from:', postObj.senderAccount);
+      return;
+    }
 
-      const existing = await this.postService.getPost(accountName, postObj.uuid);
-      if (existing) {
-        return;
-      }
+    const existing = await this.postService.getPost(accountName, postObj.uuid);
+    if (existing) {
+      return;
     }
 
     const db = await this.postService.getDB(accountName);
-    // Don't store meta posts from other accounts under our own DB key
-    if (isMeta && postObj.senderAccount !== accountName) {
-      // Still processed followers logic above, but skip storage
-    } else {
-      await db.put('posts', JSON.stringify(postObj), postObj.uuid);
-      console.debug('⬇️ [Room] Stored verified', isMeta ? 'meta' : 'post', 'from:', postObj.senderAccount, 'for @', accountName);
-    }
-    // Update follow lastId if this is a regular post (not meta)
-    if (!isMeta) {
-      try {
-        await this.postService.updateFollowLastId(accountName, postObj.senderAccount, postObj.uuid);
-      } catch {
-        // Ignore - follow lastId update must not block post reload
-      }
+    await db.put('posts', JSON.stringify(postObj), postObj.uuid);
+    console.debug('⬇️ [Room] Stored verified post from:', postObj.senderAccount, 'for @', accountName);
+    try {
+      await this.postService.updateFollowLastId(accountName, postObj.senderAccount, postObj.uuid);
+    } catch {
+      // Ignore - follow lastId update must not block post reload
     }
     
     if (typeof window !== 'undefined') {

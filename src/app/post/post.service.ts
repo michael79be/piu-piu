@@ -550,6 +550,16 @@ export class PostService {
     await db.put('posts', JSON.stringify(followersData), '@followers');
   }
 
+  async saveSettingsData(accountName: string, settingsData: SettingsData): Promise<void> {
+    const db = await this.getDB(accountName);
+    await db.put('posts', JSON.stringify(settingsData), '@settings');
+  }
+
+  async saveFollowData(accountName: string, followData: FollowData): Promise<void> {
+    const db = await this.getDB(accountName);
+    await db.put('posts', JSON.stringify(followData), '@follow');
+  }
+
   async updateFollowers(accountName: string, followerAccount: string, followData: FollowData | undefined, add: boolean): Promise<void> {
     this.followersQueue = this.followersQueue.then(async () => {
       const existing = await this.getFollowers(accountName);
