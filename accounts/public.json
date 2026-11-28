@@ -1,5 +1,5 @@
 {
-  "updatedAt": 1795823843892,
+  "updatedAt": 1795824747984,
   "count": 5,
   "accounts": [
     {
@@ -35,13 +35,42 @@
           }
         ]
       },
-      "lastSeen": 1795823779019
+      "lastSeen": 1795824712224
+    },
+    {
+      "username": "michael79",
+      "account": "michael79",
+      "providerSuffix": "",
+      "follow": {
+        "uuid": "@follow",
+        "sender": "michael79be",
+        "senderAccount": "michael79be/l",
+        "timestamp": 1795808961636,
+        "content": "follow",
+        "publicKey": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE4l3iS3AUHhR166O1LI2kcvf8R5UgxWSYIcsiUldFAfBtj95oqyyNRYwVKDwmjk8gxjqKMprX8cezGGcUZTu+tQ==",
+        "signature": "MEUCIHpXvdbRCNrKeQGY13fOtGAmBRsXo943nQoQMGS3h348AiEAzqGZgA4Y1yn0lPJyGekiROUsoOnMOo3jVVKiLrpLq2A=",
+        "authenticatorData": "1qEpROFiUmNXM6or/NY0Z5s4uqQGXy9Usrb0XJg5B7QdAAAAAA==",
+        "clientData": "eyJ0eXBlIjoid2ViYXV0aG4uZ2V0IiwiY2hhbGxlbmdlIjoiV1Y4WlhZZlN5bzY4eC1YRnZjRmx5OHVRM2RUMkhiZVdDYmNUTVlLX1R0RSIsIm9yaWdpbiI6Imh0dHBzOi8vcGl1LXBpdS50b3AiLCJjcm9zc09yaWdpbiI6ZmFsc2V9",
+        "follows": [
+          {
+            "accountName": "piupiu",
+            "profileUrl": "https://is.gd/piupiu",
+            "lastId": "59aaa428-36ce-4ddf-a0ec-552c9a6f77f4"
+          },
+          {
+            "accountName": "michael_piupiu",
+            "profileUrl": "https://is.gd/michael_piupiu",
+            "lastId": "01a21e54-375e-71be-81ed-713c6f91bd89"
+          }
+        ]
+      },
+      "lastSeen": 1795824693606
     },
     {
       "username": "piupiu",
       "account": "piupiu",
       "providerSuffix": "",
-      "lastSeen": 1795823746489
+      "lastSeen": 1795824649907
     },
     {
       "username": "michael_piupiu",
@@ -75,27 +104,7 @@
           }
         ]
       },
-      "lastSeen": 1795823745926
-    },
-    {
-      "username": "michael79",
-      "account": "michael79",
-      "providerSuffix": "",
-      "follow": {
-        "uuid": "@follow",
-        "follows": [
-          {
-            "accountName": "piupiu",
-            "profileUrl": "https://is.gd/piupiu",
-            "lastId": "59aaa428-36ce-4ddf-a0ec-552c9a6f77f4"
-          }
-        ],
-        "signature": "MEUCIBMjzHhzqABb5qnt2utCrvLRpSUz5QWb65FOmRR9Inf/AiEAxLWB6XQLzcVfk47aRyw8F2cofRwhCqVcOXZ6CkAnTHY=",
-        "authenticatorData": "1qEpROFiUmNXM6or/NY0Z5s4uqQGXy9Usrb0XJg5B7QdAAAAAA==",
-        "clientData": "eyJ0eXBlIjoid2ViYXV0aG4uZ2V0IiwiY2hhbGxlbmdlIjoiWHhLSVdueWhtcU80RVNnR0UxZGtfVzdKYU5aT1MxbXpVMzQzX1hoVmdPMCIsIm9yaWdpbiI6Imh0dHBzOi8vcGl1LXBpdS50b3AiLCJjcm9zc09yaWdpbiI6ZmFsc2V9",
-        "publicKey": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEC3vlRR5KDaa8WaxFdzVynNAG9K34uB1RbH5/4DAmCyjUiiv5N3rnpjfMuQxr/Uz/62tUwtHMxMEj6UqeoC1qgQ=="
-      },
-      "lastSeen": 1795804919444
+      "lastSeen": 1795824649811
     },
     {
       "username": "michael79be",
