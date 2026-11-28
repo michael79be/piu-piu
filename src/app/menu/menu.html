@@ -32,7 +32,7 @@
 
   <div tuiDropdown #dropdown="tuiDropdown" [tuiDropdownOpen]="showAccountMenu()">
   <div [tuiDropdown]="content">
-    <button tuiButton appearance="flat" tuiDropdownAuto tuiDropdownRole="menu" type="button" [tuiDropdown]="content" class="w-full justify-start"
+    <button tuiButton appearance="flat" tuiDropdownAuto tuiDropdownRole="menu" type="button" [tuiDropdown]="content" class="max-sm:p-2! w-full justify-start"
     tuiHintDirection="end" tuiHint="{{ accountDisplay() }}">
       @if (avatarUrl()) {
         <img [src]="avatarUrl()" alt="@{{ displayName() }}" onerror="this.style.display='none'" class="sm:w-8 sm:h-8 avatar rounded-full bg-gray-100 p-1" />
@@ -51,7 +51,7 @@
       @for (item of accountMenu(); track item) {
         <a
           tuiOption
-          (click)="item.command()"
+          (click)="showAccountMenu.set(false); item.command()"
         >
           {{ item.label }}
         </a>
